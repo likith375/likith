@@ -1,0 +1,4 @@
+{"prompt":"Declare a local variable named coins with value 10","category":"syntax","content":"local coins = 10","split":"train"}
+{"prompt":"Create a function that adds two numbers","category":"functions","content":"local function add(a, b)\n    return a + b\nend","split":"train"}
+{"prompt":"Get the Players service","category":"services","content":"local Players = game:GetService(\"Players\")","split":"validation"}
+{"prompt":"Connect a part touched event","category":"events","content":"part.Touched:Connect(function(hit)\n    print(hit.Name)\nend)","split":"test"}
