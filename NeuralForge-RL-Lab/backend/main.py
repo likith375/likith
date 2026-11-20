@@ -409,6 +409,12 @@ def execute_training(run_id, request):
                 evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
                 reward=evaluation["reward"]
                 record_attempt(task["id"],run_id,prompt,output,evaluation)
+                with connect() as c:
+                    updated_score=c.execute(
+                        "SELECT AVG(score) FROM (SELECT score FROM task_attempts WHERE task_id=? ORDER BY created_at DESC LIMIT 20)",
+                        (task["id"],)
+                    ).fetchone()[0]
+                task_recent_scores[task["id"]]=float(updated_score) if updated_score is not None else 50.0
                 total_reward += reward
                 successes += int(evaluation["score"] >= 75)
                 samples.append({"prompt":prompt,"completion":output,"reward":reward,"task_id":task["id"]})
