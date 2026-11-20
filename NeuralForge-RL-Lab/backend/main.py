@@ -113,6 +113,8 @@ def init_db():
             for name, decl in wanted.items():
                 if name not in existing:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        # Mark runs left active by a previous server process as interrupted.
+        c.execute("UPDATE runs SET status='interrupted',finished_at=?,error=COALESCE(error,'Server restarted before this run finished.'),notes='Run interrupted by server restart; review checkpoint and resume with a new run.' WHERE status IN ('queued','running')",(now(),))
         if c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0] == 0:
             seed = [
               ("Luau local variable","syntax","local coins = 10","train"),
