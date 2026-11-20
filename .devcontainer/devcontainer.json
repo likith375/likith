@@ -1,0 +1,13 @@
+{
+  "name": "NeuralForge RL Lab",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "postCreateCommand": "pip install -r NeuralForge-RL-Lab/requirements.txt",
+  "postStartCommand": "cd NeuralForge-RL-Lab && (nohup uvicorn backend.main:app --host 0.0.0.0 --port 8000 > /tmp/neuralforge.log 2>&1 &)",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "NeuralForge RL Lab",
+      "onAutoForward": "openBrowser"
+    }
+  }
+}
