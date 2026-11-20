@@ -1533,3 +1533,14 @@ def test_office_document_parser_rejects_invalid_zip_container():
     import pytest
     with pytest.raises(ValueError, match="valid ZIP-based"):
         main.validate_ooxml_archive(b"not an office document")
+
+
+
+def test_start_training_rejects_missing_model_configuration(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    response = client.post("/api/runs/start", json={
+        "episodes": 5, "batch_size": 1, "duration_hours": 0
+    })
+    assert response.status_code == 400
+    assert "Connect a model" in response.json()["detail"]
+    assert client.get("/api/runs").json() == []
