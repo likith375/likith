@@ -75,6 +75,6 @@ Content-Type: application/json
 {"rating": 5, "note": "Correct and clear", "evidence": "Checked against the supplied reference"}
 ```
 
-Ratings map linearly to reward: 1 → -1, 2 → -0.5, 3 → 0, 4 → 0.5, 5 → 1. The next training run replays up to 64 pending rated attempts through the adapter's reward-learning hook before generating new samples. Feedback is marked consumed only after a successful, validated positive update count. If the adapter fails, the feedback remains pending. This makes reviewer feedback a durable learning signal rather than a dashboard-only comment.
+Ratings map linearly to reward: 1 → -1, 2 → -0.5, 3 → 0, 4 → 0.5, 5 → 1. The next training run replays up to 64 pending rated attempts through the adapter's reward-learning hook before generating new samples. Feedback is marked consumed only after a successful, validated positive update count. If the adapter fails, the feedback remains pending. If a reviewer supplies a correction, it is stored as an unverified mistake candidate; it must pass the separate evidence-review workflow before it can enter supervised training. This makes reviewer feedback a durable learning signal rather than a dashboard-only comment.
 
 Use `GET /api/attempts` to inspect attempts and `GET /api/feedback?pending_only=true` to inspect the replay queue. Task deletion preserves attempt and feedback records.
