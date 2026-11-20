@@ -88,7 +88,8 @@ def init_db():
           success_rate REAL DEFAULT 0,real_updates INTEGER DEFAULT 0,notes TEXT DEFAULT '',
           created_at TEXT NOT NULL,started_at TEXT,finished_at TEXT,error TEXT,avg_loss REAL DEFAULT 0,
           model_name TEXT DEFAULT '',stop_requested INTEGER DEFAULT 0,
-          duration_hours REAL DEFAULT 0,episodes_completed INTEGER DEFAULT 0);
+          duration_hours REAL DEFAULT 0,episodes_completed INTEGER DEFAULT 0,
+          human_feedback_examples INTEGER DEFAULT 0,feedback_updates INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS checkpoints(
           id TEXT PRIMARY KEY,run_id TEXT DEFAULT '',label TEXT NOT NULL,kind TEXT NOT NULL,
           created_at TEXT NOT NULL,path TEXT DEFAULT '',metadata_json TEXT DEFAULT '{}');
@@ -120,7 +121,9 @@ def init_db():
           "runs": {"started_at": "TEXT", "finished_at": "TEXT", "error": "TEXT",
                    "avg_loss": "REAL DEFAULT 0", "model_name": "TEXT DEFAULT ''",
                    "stop_requested": "INTEGER DEFAULT 0", "duration_hours": "REAL DEFAULT 0",
-                   "episodes_completed": "INTEGER DEFAULT 0"},
+                   "episodes_completed": "INTEGER DEFAULT 0",
+                   "human_feedback_examples": "INTEGER DEFAULT 0",
+                   "feedback_updates": "INTEGER DEFAULT 0"},
           "checkpoints": {"path": "TEXT DEFAULT ''", "metadata_json": "TEXT DEFAULT '{}'"},
         }
         for table, wanted in migrations.items():
@@ -439,7 +442,7 @@ def execute_training(run_id, request):
         batch_size=request.get("batch_size") or int(cfg.get("batch_size","2"))
         duration_hours=float(request.get("duration_hours",0))
         deadline=time.monotonic()+duration_hours*3600 if duration_hours>0 else None
-        updates=0; losses=[]
+        updates=0; losses=[]; feedback_updates=0; feedback_examples=0
         # Human ratings are the strongest available reward signal. They are
         # consumed only after a real adapter update succeeds.
         with connect() as c:
@@ -456,12 +459,15 @@ def execute_training(run_id, request):
             feedback_result=adapter.train_step(feedback_batch)
             feedback_updates,feedback_loss=validate_update_result(feedback_result,"train_step")
             updates+=feedback_updates
+            feedback_examples=len(pending_feedback)
             if feedback_loss is not None: losses.append(feedback_loss)
             consumed_ids=[row["id"] for row in pending_feedback]
             placeholders=",".join("?" for _ in consumed_ids)
             with connect() as c:
                 c.execute(f"UPDATE human_feedback SET consumed_at=? WHERE id IN ({placeholders}) AND consumed_at IS NULL",
                           [now(),*consumed_ids])
+                c.execute("UPDATE runs SET human_feedback_examples=?,feedback_updates=?,real_updates=? WHERE id=?",
+                          (feedback_examples,feedback_updates,updates,run_id))
         samples=[]; total_reward=0.0; successes=0; supervised_cursor=0; completed_episodes=0
         for episode in range(episodes):
             with connect() as c:
@@ -536,8 +542,9 @@ def execute_training(run_id, request):
             duration_hit=bool(deadline and time.monotonic()>=deadline)
             status="stopped" if stopped else "completed"
             note=("Stopped by user. " if stopped else "")+("Time budget reached. " if duration_hit else "")+f"Processed {completed_episodes} episodes. Training uses the configured adapter."
-            c.execute("UPDATE runs SET status=?,finished_at=?,notes=?,real_updates=?,avg_loss=?,episodes_completed=? WHERE id=?",
-                      (status,now(),note,updates,sum(losses)/len(losses) if losses else 0,completed_episodes,run_id))
+            c.execute("UPDATE runs SET status=?,finished_at=?,notes=?,real_updates=?,avg_loss=?,episodes_completed=?,human_feedback_examples=?,feedback_updates=? WHERE id=?",
+                      (status,now(),note,updates,sum(losses)/len(losses) if losses else 0,
+                       completed_episodes,feedback_examples,feedback_updates,run_id))
     except Exception as exc:
         with connect() as c:
             c.execute("UPDATE runs SET status='failed',finished_at=?,error=?,notes=? WHERE id=?",
