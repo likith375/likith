@@ -191,7 +191,13 @@ def static_evaluate(output: str, expected: str = "") -> dict[str, Any]:
 
 def verified_examples(limit=6):
     with connect() as c:
-        rows = c.execute("SELECT prompt,correction FROM mistakes WHERE verification='verified' AND correction<>'' ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
+        rows = c.execute("""
+          SELECT m.prompt,m.correction FROM mistakes m
+          WHERE COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
+                          ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'
+            AND m.correction<>''
+          ORDER BY m.created_at DESC LIMIT ?
+        """,(limit,)).fetchall()
     return [{"prompt":r["prompt"],"correction":r["correction"]} for r in rows]
 
 def build_prompt(task):
@@ -354,9 +360,13 @@ def evaluate(payload:dict):
 
 @app.get("/api/mistakes")
 def list_mistakes(verification:str | None=None):
-    query="SELECT * FROM mistakes"; args=[]
-    if verification: query+=" WHERE verification=?"; args.append(verification)
-    query+=" ORDER BY created_at DESC LIMIT 1000"
+    query="""SELECT m.*,
+      COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
+                ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification) AS verification
+      FROM mistakes m"""
+    args=[]
+    if verification: query+=" WHERE COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)=?"; args.append(verification)
+    query+=" ORDER BY m.created_at DESC LIMIT 1000"
     with connect() as c:return [dict(x) for x in c.execute(query,args)]
 
 @app.post("/api/mistakes")
@@ -374,11 +384,10 @@ def review_mistake(mid:str, review:ReviewIn):
     with connect() as c:
         row=c.execute("SELECT id FROM mistakes WHERE id=?",(mid,)).fetchone()
         if not row: raise HTTPException(404,"Mistake not found.")
-        # Never overwrite the original. Append a review event and a new review snapshot.
+        # Strict append-only: original attempt is immutable; status is derived from the latest review event.
         c.execute("INSERT INTO mistake_events(id,mistake_id,action,note,created_at) VALUES(?,?,?,?,?)",
                   (str(uuid.uuid4()),mid,review.verification,review.note,now()))
-        c.execute("UPDATE mistakes SET verification=? WHERE id=?",(review.verification,mid))
-    return {"id":mid,"verification":review.verification,"review_event_appended":True}
+    return {"id":mid,"verification":review.verification,"review_event_appended":True,"original_unchanged":True}
 
 @app.get("/api/mistakes/export")
 def export_mistakes():
