@@ -277,7 +277,7 @@ def validate_update_result(result: Any, operation: str) -> tuple[int, float | No
         raise TypeError(f"{operation} must return a dictionary containing an explicit updates count.")
     updates = result.get("updates")
     if not isinstance(updates, int) or updates < 0:
-        raise ValueError(f"{operation} must return a non-negative integer 'updates' field.")
+        raise ValueError(f"{operation} must return a non-negative integer updates field.")
     if operation == "train_step" and updates < 1:
         raise RuntimeError("The adapter reported zero reward-learning updates; the run cannot claim learning.")
     loss = result.get("loss")
