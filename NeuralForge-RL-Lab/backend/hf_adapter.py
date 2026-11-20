@@ -107,6 +107,7 @@ class HuggingFaceREINFORCEAdapter:
         trainable=sum(parameter.numel() for parameter in self.model.parameters() if parameter.requires_grad)
         return {
             "device":str(self.device),
+            "torch_dtype":str(self.load_dtype).replace("torch.",""),
             "model_type":str(getattr(self.model.config,"model_type","unknown")),
             "total_parameters":total,
             "trainable_parameters":trainable,
@@ -268,6 +269,7 @@ class HuggingFaceREINFORCEAdapter:
         metadata = {
             "adapter": self.name, "model_path": str(path),
             "base_model_path": self.base_model_path, "device": str(self.device),
+            "torch_dtype": str(self.load_dtype).replace("torch.", ""),
             "baseline": self.baseline, "learning_rate": self.learning_rate,
             "use_lora": self.use_lora, "lora_r": self.lora_r,
             "lora_alpha": self.lora_alpha, "lora_dropout": self.lora_dropout,
