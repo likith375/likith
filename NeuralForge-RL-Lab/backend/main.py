@@ -469,7 +469,9 @@ def _execute_training_locked(run_id, request):
             "category":row["category"],
             "content":row["correction"]
         } for row in verified_rows]
-        supervised_rows.extend(dict(row) for row in train_rows)
+        imported_supervised_rows=[dict(row) for row in train_rows]
+        random.shuffle(imported_supervised_rows)
+        supervised_rows.extend(imported_supervised_rows)
         # Preserve a restorable model snapshot before the first optimizer update.
         backup_id=str(uuid.uuid4())
         backup_path=str(CHECKPOINT_DIR/backup_id)
