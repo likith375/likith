@@ -676,6 +676,7 @@ DATASET_EXTENSIONS = {
     ".m", ".pl", ".lua", ".luau", ".vue", ".svelte", ".graphql", ".proto", ".pdf", ".docx", ".xlsx", ".pptx"
 }
 TEXT_EXTENSIONS = DATASET_EXTENSIONS - {".jsonl", ".json", ".csv", ".ipynb"}
+DOCUMENT_CHUNK_EXTENSIONS = TEXT_EXTENSIONS - {".xlsx"}
 
 def chunk_reference_text(text: str, max_chars: int = 3200) -> list[str]:
     """Split prose on paragraph boundaries so long documents fit model context."""
@@ -887,7 +888,7 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
     except Exception as exc:
         raise HTTPException(400,f"Could not parse uploaded material: {type(exc).__name__}: {exc}")
     if not isinstance(rows,list): raise HTTPException(400,"Uploaded material did not produce examples.")
-    is_document=Path(file.filename).suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".pptx",".html",".htm",".xml"}
+    is_document=Path(file.filename).suffix.lower() in DOCUMENT_CHUNK_EXTENSIONS
     digest=hashlib.sha256(raw).hexdigest()
     prepared=prepared_dataset_rows(rows,category,Path(file.filename).name,digest,document_chunks=is_document)
     count=0
@@ -926,7 +927,7 @@ def import_inbox_folder():
         for row in rows:
             if isinstance(row,dict) and str(row.get("prompt","")).startswith("Reference material: "):
                 row["prompt"]="Reference file: "+path.name
-        is_document=path.suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".pptx",".html",".htm",".xml"}
+        is_document=path.suffix.lower() in DOCUMENT_CHUNK_EXTENSIONS
         prepared=prepared_dataset_rows(rows,path.suffix.lower().lstrip("."),source_name,digest,document_chunks=is_document)
         with connect() as c:
             for item in prepared:
