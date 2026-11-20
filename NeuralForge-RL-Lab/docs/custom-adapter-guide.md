@@ -43,7 +43,7 @@ Return a dictionary such as:
 {"updates": 1, "loss": 0.42}
 ```
 
-The `updates` count must be a non-negative integer and must report optimizer steps that actually happened. Reward training must report at least one update. Do not return a fake success value.
+The `updates` count must be an explicit non-negative integer and must report optimizer steps that actually happened. A zero count is valid when no trainable tokens or non-zero policy gradient exist; it is not counted as learning and the batch may be retried in a later run. Do not return a fake success value.
 
 ### `save_checkpoint(path)` and `load_checkpoint(path)`
 
@@ -91,10 +91,15 @@ A model can generate text successfully but still have no trainable parameters. G
 
 ## 6. Feedback loop
 
-Rate a saved attempt from 1 to 5. Ratings map to reward values -1, -0.5, 0, 0.5 and +1. The next training run replays pending ratings through `train_step`. Feedback is marked consumed only after the updated model has been checkpointed.
+Rate a saved attempt from 1 to 5. Ratings map to reward values -1, -0.5, 0, 0.5 and +1. The next training run replays pending ratings through `train_step`. Feedback is marked consumed only after the adapter reports a real reward update and the updated model has been checkpointed. A zero-gradient feedback batch remains pending.
 
 If a reviewer supplies a correction, NeuralForge stores it as an unverified mistake candidate. Review its evidence and explicitly verify it before it can enter `supervised_step`.
 
 ## 7. Important trust boundary
 
 The adapter module is imported and executed as trusted Python code in the NeuralForge process. Only configure adapter code that you wrote or reviewed. Uploaded datasets and generated code are treated as data and are not executed by the lab.
+
+
+## 8. Failure and restore safety
+
+Before training, NeuralForge saves a pre-training checkpoint. If an optimizer operation or final checkpoint fails, it attempts to reload that snapshot and records whether rollback succeeded. Before a manual restore, it saves a safety copy of the currently loaded model; if the selected checkpoint cannot load, it attempts to restore the previous model. Keep these checkpoints until you have validated the new model.
