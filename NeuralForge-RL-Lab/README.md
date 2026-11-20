@@ -7,11 +7,12 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a m
 ## What is included
 
 - FastAPI backend, SQLite persistence, and a responsive browser dashboard.
-- JSONL, JSON, CSV, Jupyter notebooks, source code, markup, configuration, and text/document import, filtering, and JSONL export.
+- JSONL, JSON, CSV, Jupyter notebooks, source code, markup, configuration, text, PDF (selectable text), and DOCX import, filtering, and JSONL export.
 - Train / validation / test split support.
 - Task studio with difficulty, category, expected behavior, and enable/disable controls.
 - Append-only mistake records with a separate review-event history. Only verified corrections are added to future task prompts.
-- Generic static response heuristics with transparent checks and explicit warnings.
+- Domain-neutral static response heuristics with explicit warnings, plus an optional trusted adapter evaluation hook for subject-specific verification.
+- Adapter dry-run testing, one-shot model generation, system diagnostics, and dataset/task deletion APIs.
 - Background training runs, live run polling, reward and loss metrics.
 - Optional training time budget up to 24 hours, episode cap, and graceful stop control.
 - Combined supervised fine-tuning on imported train-split examples plus reward-based updates when the adapter supports it.
@@ -71,7 +72,7 @@ The required adapter contract:
 - `save_checkpoint(path)` saves model weights and training state.
 - `load_checkpoint(path)` restores them.
 
-A successful-looking return value is not enough: `train_step` must really update trainable parameters. The lab reports an update only after that method returns successfully.
+A successful-looking return value is not enough: `train_step` must really update trainable parameters and return an explicit positive integer `updates` count. Missing update counts, zero reward updates, and non-finite losses fail the run instead of being counted as learning.
 
 ## Optional built-in Hugging Face adapter
 
@@ -96,7 +97,7 @@ JSONL is recommended. Each line is one JSON object:
 {"prompt":"Create a part","category":"instances","content":"local part = Instance.new(\"Part\")","split":"train"}
 ```
 
-Accepted content fields: `content`, `code`, `completion`, `output`, or `text`. Plain-text source and documentation files are imported as reference examples; Jupyter notebooks are split into cells. Binary formats such as PDF and DOCX are not parsed yet.
+Accepted content fields: `content`, `code`, `completion`, `output`, or `text`. Plain-text source and documentation files are imported as reference examples; Jupyter notebooks are split into cells. PDF files import selectable text page by page (scanned-image OCR is not included); DOCX imports paragraphs and tables.
 
 Accepted prompt fields: `prompt`, `instruction`, or `title`.
 
@@ -119,7 +120,7 @@ Read `docs/rl-training.md` before interpreting the metrics.
 
 ## Important limitations
 
-- **No automatic execution or domain-specific verification:** the current evaluator checks text structure and reference-string matches. It cannot prove a script works in Roblox Studio. Do not treat a high score as a runtime pass.
+- **Evaluation depends on the configured evaluator:** the default evaluator checks only basic text structure and reference matching. It cannot prove code works or factual claims are true. Add a domain-specific `evaluate(prompt, output, expected, domain)` method to a trusted adapter for stronger checks. Never treat a generic heuristic score as a runtime pass.
 - **Reward quality matters:** the built-in static reward is a baseline. Better results require a carefully designed evaluator and reviewed task/reference data.
 - **REINFORCE is experimental:** it may be unstable, especially with small datasets, small models, or noisy rewards. Keep backups and compare held-out validation/test results.
 - **Local resources:** training speed and memory use depend on your model size, hardware, and batch settings.
