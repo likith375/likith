@@ -131,7 +131,9 @@ def init_db():
                       (str(uuid.uuid4()),"Explore a subject","Explain one important concept from the subject being studied, using a clear example.",
                        "","easy","general",now()))
         defaults = {"adapter_spec":"", "model_path":"", "max_new_tokens":"384",
-                    "learning_rate":"0.00001", "batch_size":"2", "reward_threshold":"0.45"}
+                    "learning_rate":"0.00001", "batch_size":"2", "reward_threshold":"0.45",
+                    "use_lora":"true", "lora_r":"8", "lora_alpha":"16",
+                    "lora_dropout":"0.05", "lora_target_modules":""}
         for k,v in defaults.items():
             c.execute("INSERT OR IGNORE INTO adapter_settings(key,value,updated_at) VALUES(?,?,?)",(k,v,now()))
 
@@ -170,6 +172,11 @@ class AdapterConfig(BaseModel):
     learning_rate: float = Field(default=0.00001, gt=0, le=0.1)
     batch_size: int = Field(default=2, ge=1, le=32)
     reward_threshold: float = Field(default=0.45, ge=0, le=1)
+    use_lora: bool = True
+    lora_r: int = Field(default=8, ge=1, le=256)
+    lora_alpha: int = Field(default=16, ge=1, le=1024)
+    lora_dropout: float = Field(default=0.05, ge=0, lt=1)
+    lora_target_modules: str = Field(default="", max_length=500)
 
 def setting_map():
     with connect() as c:
@@ -180,7 +187,7 @@ def get_adapter(force_reload=False):
     cfg = setting_map()
     spec = cfg.get("adapter_spec","").strip()
     model_path = cfg.get("model_path","").strip()
-    fingerprint = (spec, model_path)
+    fingerprint = (spec, model_path, tuple(sorted((k, str(v)) for k, v in cfg.items())))
     if not spec and model_path:
         spec = "backend.hf_adapter:load_adapter"
         fingerprint = (spec, model_path)
@@ -784,7 +791,11 @@ def get_adapter_config():
     cfg=setting_map()
     return {"adapter_spec":cfg.get("adapter_spec",""),"model_path":cfg.get("model_path",""),
             "max_new_tokens":int(cfg.get("max_new_tokens","384")),"learning_rate":float(cfg.get("learning_rate","0.00001")),
-            "batch_size":int(cfg.get("batch_size","2")),"reward_threshold":float(cfg.get("reward_threshold","0.45"))}
+            "batch_size":int(cfg.get("batch_size","2")),"reward_threshold":float(cfg.get("reward_threshold","0.45")),
+            "use_lora":str(cfg.get("use_lora","true")).lower() not in {"0","false","no"},
+            "lora_r":int(cfg.get("lora_r","8")),"lora_alpha":int(cfg.get("lora_alpha","16")),
+            "lora_dropout":float(cfg.get("lora_dropout","0.05")),
+            "lora_target_modules":cfg.get("lora_target_modules","")}
 
 @app.put("/api/adapter/config")
 def set_adapter_config(config:AdapterConfig):
@@ -831,6 +842,7 @@ def system_diagnostics():
         "adapter_configured": bool(cfg.get("adapter_spec", "").strip() or cfg.get("model_path", "").strip()),
         "adapter_spec": cfg.get("adapter_spec", ""),
         "model_path_configured": bool(cfg.get("model_path", "").strip()),
+        "lora_enabled": str(cfg.get("use_lora","true")).lower() not in {"0","false","no"},
         "limits": {"upload_mb": 15, "max_run_hours": 24, "max_episodes": 1000000},
     }
 
