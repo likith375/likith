@@ -347,6 +347,29 @@ def add_task(t:TaskIn):
                   (tid,t.title,t.prompt,t.expected,t.difficulty,t.category,now()))
     return {"id":tid}
 
+@app.post("/api/tasks/{task_id}/try")
+def try_task(task_id: str):
+    with connect() as c:
+        task=c.execute("SELECT * FROM tasks WHERE id=? AND enabled=1",(task_id,)).fetchone()
+    if not task: raise HTTPException(404,"Enabled task not found.")
+    try:
+        adapter=get_adapter()
+        if adapter is None: raise HTTPException(400,"Connect a model before testing a task.")
+        prompt=build_prompt(dict(task))
+        generated=adapter.generate(prompt,{"task_id":task_id,"difficulty":task["difficulty"],"category":task["category"],
+                                           "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
+        output=generated if isinstance(generated,str) else str(generated.get("text",""))
+        evaluation=static_evaluate(output,task["expected"])
+        mistake_id=None
+        if evaluation["score"] < float(setting_map().get("reward_threshold","0.45"))*100:
+            mistake_id=save_mistake(task_id,prompt,output,evaluation)
+        return {"task_id":task_id,"output":output,"evaluation":evaluation,"mistake_id":mistake_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500,f"Model task failed: {type(exc).__name__}: {exc}")
+
+
 @app.patch("/api/tasks/{task_id}")
 def toggle_task(task_id:str, enabled:bool):
     with connect() as c:
@@ -360,7 +383,7 @@ def evaluate(payload:dict):
 
 @app.get("/api/mistakes")
 def list_mistakes(verification:str | None=None):
-    query="""SELECT m.*,
+    query="""SELECT m.id,m.task_id,m.prompt,m.output,m.category,m.evidence,m.correction,m.evaluator,m.created_at,
       COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
                 ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification) AS verification
       FROM mistakes m"""
