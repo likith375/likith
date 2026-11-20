@@ -43,7 +43,7 @@ Return a dictionary such as:
 {"updates": 1, "loss": 0.42}
 ```
 
-The `updates` count must be an explicit non-negative integer and must report optimizer steps that actually happened. A zero count is valid when no trainable tokens or non-zero policy gradient exist; it is not counted as learning and the batch may be retried in a later run. Do not return a fake success value.
+The `updates` count must be an explicit non-negative integer and must report optimizer steps that actually happened. A zero count is valid when no trainable tokens or non-zero policy gradient exist; it is not counted as learning. The run can continue without claiming a reward update. Do not return a fake success value.
 
 ### `save_checkpoint(path)` and `load_checkpoint(path)`
 
