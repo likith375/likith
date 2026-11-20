@@ -71,7 +71,7 @@ def init_db():
           verification TEXT DEFAULT 'unverified',evaluator TEXT DEFAULT 'static',created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS mistake_events(
           id TEXT PRIMARY KEY,mistake_id TEXT NOT NULL,action TEXT NOT NULL,note TEXT DEFAULT '',
-          created_at TEXT NOT NULL);
+          correction TEXT DEFAULT '',evidence TEXT DEFAULT '',created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS runs(
           id TEXT PRIMARY KEY,status TEXT NOT NULL,episodes INTEGER NOT NULL,reward REAL DEFAULT 0,
           success_rate REAL DEFAULT 0,real_updates INTEGER DEFAULT 0,notes TEXT DEFAULT '',
@@ -91,6 +91,7 @@ def init_db():
         migrations = {
           "datasets": {"metadata_json": "TEXT DEFAULT '{}'"},
           "tasks": {"category": "TEXT DEFAULT 'general'", "enabled": "INTEGER DEFAULT 1"},
+          "mistake_events": {"correction": "TEXT DEFAULT ''", "evidence": "TEXT DEFAULT ''"},
           "runs": {"started_at": "TEXT", "finished_at": "TEXT", "error": "TEXT",
                    "avg_loss": "REAL DEFAULT 0", "model_name": "TEXT DEFAULT ''",
                    "stop_requested": "INTEGER DEFAULT 0", "duration_hours": "REAL DEFAULT 0",
@@ -152,6 +153,8 @@ class MistakeIn(BaseModel):
 class ReviewIn(BaseModel):
     verification: str
     note: str = ""
+    correction: str = ""
+    evidence: str = ""
 
 class RunIn(BaseModel):
     episodes: int = Field(default=5000, ge=1, le=1000000)
@@ -225,10 +228,13 @@ def static_evaluate(output: str, expected: str = "") -> dict[str, Any]:
 def verified_examples(limit=6):
     with connect() as c:
         rows = c.execute("""
-          SELECT m.prompt,m.correction FROM mistakes m
+          SELECT m.prompt,COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id
+                          ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS correction
+          FROM mistakes m
           WHERE COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
                           ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'
-            AND m.correction<>''
+            AND COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id
+                          ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction)<>''
           ORDER BY m.created_at DESC LIMIT ?
         """,(limit,)).fetchall()
     return [{"prompt":r["prompt"],"correction":r["correction"]} for r in rows]
@@ -538,7 +544,10 @@ def evaluate(payload:dict):
 
 @app.get("/api/mistakes")
 def list_mistakes(verification:str | None=None):
-    query="""SELECT m.id,m.task_id,m.prompt,m.output,m.category,m.evidence,m.correction,m.evaluator,m.created_at,
+    query="""SELECT m.id,m.task_id,m.prompt,m.output,m.category,
+      COALESCE(NULLIF((SELECT e.evidence FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.evidence) AS evidence,
+      COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS correction,
+      m.evaluator,m.created_at,
       COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
                 ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification) AS verification
       FROM mistakes m"""
@@ -561,13 +570,20 @@ def review_mistake(mid:str, review:ReviewIn):
     if review.verification not in ("verified","rejected","needs_review"):
         raise HTTPException(400,"Choose verified, rejected or needs_review.")
     with connect() as c:
-        row=c.execute("SELECT id FROM mistakes WHERE id=?",(mid,)).fetchone()
+        row=c.execute("""SELECT m.correction,m.evidence,
+          COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS current_correction,
+          COALESCE(NULLIF((SELECT e.evidence FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.evidence) AS current_evidence
+          FROM mistakes m WHERE m.id=?""",(mid,)).fetchone()
         if not row: raise HTTPException(404,"Mistake not found.")
-        # Strict append-only: original attempt is immutable; status is derived from the latest review event.
+        correction=review.correction.strip() or row["current_correction"]
+        evidence=review.evidence.strip() or row["current_evidence"]
+        if review.verification=="verified" and (not correction or not evidence):
+            raise HTTPException(400,"To verify a correction, provide both a correction and evidence (test result, error trace, or source reference).")
+        # Strict append-only: original attempt is immutable; correction, evidence and status are new review events.
         event_id=str(uuid.uuid4())
-        c.execute("INSERT INTO mistake_events(id,mistake_id,action,note,created_at) VALUES(?,?,?,?,?)",
-                  (event_id,mid,review.verification,review.note,now()))
-    append_mistake_log("review_event",{"event_id":event_id,"mistake_id":mid,"action":review.verification,"note":review.note})
+        c.execute("INSERT INTO mistake_events(id,mistake_id,action,note,correction,evidence,created_at) VALUES(?,?,?,?,?,?,?)",
+                  (event_id,mid,review.verification,review.note,correction,evidence,now()))
+    append_mistake_log("review_event",{"event_id":event_id,"mistake_id":mid,"action":review.verification,"note":review.note,"correction":correction,"evidence":evidence})
     return {"id":mid,"verification":review.verification,"review_event_appended":True,"original_unchanged":True}
 
 @app.get("/api/mistakes/export")
