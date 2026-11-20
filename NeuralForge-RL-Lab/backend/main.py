@@ -836,7 +836,7 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
                 if getattr(shape,"has_table",False):
                     for row in shape.table.rows:
                         parts.append(" | ".join(cell.text for cell in row.cells))
-            content="\\n".join(parts).strip()
+            content="\n".join(parts).strip()
             if content:
                 slides.append({"prompt":f"{Path(filename).name} slide {slide_number}",
                                "content":content,"category":"presentation","split":"train"})
