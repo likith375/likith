@@ -94,7 +94,7 @@ Download or prepare a **local** causal language model directory that is compatib
 - Adapter module: `backend.hf_adapter:load_adapter`
 - Local model folder: path to your local model directory
 
-The built-in adapter uses LoRA by default (configurable rank, alpha, dropout and target modules) to tune a small fraction of model parameters; disable it only when you intentionally want full fine-tuning and have enough memory. It combines supervised reference learning with sampled-response REINFORCE updates, independent of any single programming language. It is an experimental baseline for learning workflows, not a state-of-the-art coding model. It does not download model weights or call paid APIs.
+The built-in adapter uses LoRA by default (configurable rank, alpha, dropout and target modules) to tune a small fraction of model parameters. On CUDA, frozen LoRA base weights load in FP16 to reduce VRAM; full fine-tuning stays FP32 by default and requires substantially more memory. The adapter caps its training sequence length at 4096 tokens. It combines supervised reference learning with sampled-response REINFORCE updates, independent of any single programming language. It is an experimental baseline for learning workflows, not a state-of-the-art coding model. It does not download model weights or call paid APIs.
 
 ## Supported upload formats
 
