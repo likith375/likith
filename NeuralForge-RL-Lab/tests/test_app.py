@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+from pathlib import Path
 from backend import main
 
 def setup_client(tmp_path, monkeypatch):
@@ -110,6 +111,7 @@ def test_training_uses_supervised_and_reward_updates(tmp_path, monkeypatch):
             assert batch and "reward" in batch[0]
             return {"updates": 1, "loss": 0.1}
         def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
             return {"saved": destination}
         def load_checkpoint(self, source):
             return {"loaded": source}
@@ -124,6 +126,7 @@ def test_training_uses_supervised_and_reward_updates(tmp_path, monkeypatch):
     assert run["episodes_completed"] == 2
     assert run["real_updates"] == 2
     assert adapter.sft == 1 and adapter.rl == 1
+    assert len(client.get("/api/checkpoints").json()) == 1
     with main.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM task_attempts WHERE run_id='fake-run'").fetchone()[0] == 2
 
@@ -220,7 +223,8 @@ def test_run_fails_if_adapter_does_not_report_real_updates(tmp_path, monkeypatch
         def train_step(self, batch):
             return {"loss": 0.25}  # No explicit update count.
         def save_checkpoint(self, destination):
-            return {}
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            return {"saved": destination}
         def load_checkpoint(self, source):
             return {}
 
@@ -419,7 +423,8 @@ def test_adaptive_curriculum_weights_low_scoring_tasks_higher(tmp_path, monkeypa
         def train_step(self, batch):
             return {"updates": 1, "loss": 0.1}
         def save_checkpoint(self, destination):
-            return {}
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            return {"saved": destination}
         def load_checkpoint(self, source):
             return {}
     monkeypatch.setattr(main, "get_adapter", lambda: TrainingAdapter())
