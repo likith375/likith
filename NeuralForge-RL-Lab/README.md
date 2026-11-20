@@ -13,6 +13,9 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a P
 - Append-only mistake records with a separate review-event history. Only verified corrections are added to future task prompts.
 - Static Luau response heuristics with transparent checks and explicit warnings.
 - Background training runs, live run polling, reward and loss metrics.
+- Combined supervised fine-tuning on imported train-split examples plus reward-based updates when the adapter supports it.
+- A watched `data/inbox/` folder for dropping your own Luau and documentation files.
+- Dedicated `data/mistakes/mistakes.jsonl` append-only audit log.
 - A model-adapter contract for your own scratch-built Python AI.
 - An optional Hugging Face causal-LM adapter with REINFORCE-style policy-gradient updates.
 - Model checkpoint save and restore through the adapter.
@@ -106,7 +109,7 @@ A 29-example Luau starter file is available at `examples/luau_training_starter.j
 3. The connected adapter generates a candidate completion.
 4. The evaluator computes transparent static checks and a reward.
 5. Weak attempts are preserved in mistake memory for human review.
-6. The adapter receives prompt, completion, and reward samples.
+6. The adapter receives prompt, completion, and reward samples. Imported train-split examples also go to the optional supervised-training hook.
 7. The adapter performs a real update; run metrics record updates and loss.
 8. The model can be checkpointed and restored.
 
