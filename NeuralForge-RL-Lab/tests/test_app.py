@@ -119,6 +119,7 @@ def test_training_uses_supervised_and_reward_updates(tmp_path, monkeypatch):
     adapter = FakeAdapter()
     monkeypatch.setattr(main, "get_adapter", lambda: adapter)
     with main.connect() as db:
+        db.execute("UPDATE tasks SET expected='local health = 100' WHERE id=(SELECT id FROM tasks LIMIT 1)")
         db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
                    ("fake-run", "queued", 2, main.now()))
     main.execute_training("fake-run", {"episodes": 2, "batch_size": 2, "duration_hours": 0})
