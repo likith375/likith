@@ -8,7 +8,7 @@ JSONL is the preferred interchange format: one JSON object per line. Dataset exp
 |---|---:|---|
 | prompt | yes | Instruction or task description |
 | content | yes | Reference completion, code or example |
-| category | no | Topic such as syntax, events, UI, services |
+| category | no | Topic such as physics, mathematics, Python, writing or engineering |
 | split | no | train, validation or test |
 | metadata | no | Any extra source or provenance fields |
 
@@ -20,7 +20,7 @@ The importer accepts `instruction`, `question`, `input`, `user`, `title`, and `n
 {"prompt":"Create a part","category":"instances","content":"local part = Instance.new(\"Part\")","split":"train"}
 ```
 
-CSV files should contain at least one prompt-like column and one content-like column. Long prose documents are chunked on paragraph boundaries and all chunks from one document stay in the train split unless an explicit split is supplied. Text-based source and documentation files are imported as reference material. Jupyter notebooks are split into cells. PDF files import selectable text page by page; scanned-image PDFs need OCR and are not currently supported. DOCX files import paragraphs and tables. PDF/DOCX support uses `pypdf` and `python-docx`; XLSX uses `openpyxl` and PPTX uses `python-pptx`. These are installed by `requirements.txt`. XLSX rows with question/answer or prompt/completion columns become paired examples; other rows are preserved as labeled cell text. PPTX slide text and tables are imported slide by slide.
+CSV/XLSX rows are converted using common prompt and answer column aliases; if no prompt column exists, the importer assigns a row label. Rows without any recognized content field are skipped for CSV, while generic XLSX rows are preserved as labeled cell text. Long prose documents are chunked on paragraph boundaries and all chunks from one document stay in the train split unless an explicit split is supplied. Text-based source and documentation files are imported as reference material. Jupyter notebooks are split into cells. PDF files import selectable text page by page; scanned-image PDFs need OCR and are not currently supported. DOCX files import paragraphs and tables. PDF/DOCX support uses `pypdf` and `python-docx`; XLSX uses `openpyxl` and PPTX uses `python-pptx`. These are installed by `requirements.txt`. XLSX rows with question/answer or prompt/completion columns become paired examples; other rows are preserved as labeled cell text. PPTX slide text and tables are imported slide by slide.
 
 ## Recommended categories
 
