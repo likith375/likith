@@ -930,7 +930,13 @@ def export_datasets():
     with connect() as c: rows=[dict(x) for x in c.execute("SELECT * FROM datasets ORDER BY created_at")]
     def stream():
         for row in rows:
-            yield json.dumps({"prompt":row["name"],"category":row["category"],"split":row["split"],"content":row["content"]},ensure_ascii=False)+"\n"
+            try:
+                metadata=json.loads(row.get("metadata_json") or "{}")
+            except (TypeError,ValueError):
+                metadata={}
+            yield json.dumps({"prompt":row["name"],"category":row["category"],
+                              "split":row["split"],"content":row["content"],
+                              "metadata":metadata},ensure_ascii=False)+"\\n"
     return StreamingResponse(stream(),media_type="application/x-ndjson",headers={"Content-Disposition":"attachment; filename=neuralforge-dataset.jsonl"})
 
 @app.delete("/api/datasets/{dataset_id}")
