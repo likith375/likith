@@ -1464,3 +1464,36 @@ def test_dashboard_exposes_feedback_and_training_preflight_controls(tmp_path, mo
     assert 'id="feedback-list"' in page
     assert 'api("/api/attempts?limit=100")' in script
     assert 'api("/api/training/preview")' in script
+
+
+
+def test_checkpoint_delete_removes_only_files_inside_checkpoint_directory(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    checkpoint_dir = tmp_path / "checkpoints" / "delete-me"
+    checkpoint_dir.mkdir(parents=True)
+    (checkpoint_dir / "weights.bin").write_bytes(b"weights")
+    with main.connect() as db:
+        db.execute("""INSERT INTO checkpoints
+          (id,run_id,label,kind,created_at,path,metadata_json)
+          VALUES(?,?,?,?,?,?,?)""",
+          ("delete-me", "", "Disposable checkpoint", "model_weights",
+           main.now(), str(checkpoint_dir), "{}"))
+    response = client.delete("/api/checkpoints/delete-me")
+    assert response.status_code == 200
+    assert not checkpoint_dir.exists()
+    assert all(row["id"] != "delete-me" for row in client.get("/api/checkpoints").json())
+
+
+def test_checkpoint_delete_refuses_paths_outside_checkpoint_directory(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    protected = tmp_path / "do-not-delete.txt"
+    protected.write_text("keep me", encoding="utf-8")
+    with main.connect() as db:
+        db.execute("""INSERT INTO checkpoints
+          (id,run_id,label,kind,created_at,path,metadata_json)
+          VALUES(?,?,?,?,?,?,?)""",
+          ("external-path", "", "External", "model_weights",
+           main.now(), str(protected), "{}"))
+    response = client.delete("/api/checkpoints/external-path")
+    assert response.status_code == 400
+    assert protected.read_text(encoding="utf-8") == "keep me"
