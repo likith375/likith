@@ -876,6 +876,8 @@ def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, sou
         if not item: continue
         content_key=hashlib.sha256(item["content"].encode("utf-8")).hexdigest()
         requested_split=item["split"]
+        if requested_split and requested_split not in ("train","validation","test"):
+            raise ValueError("Dataset split must be train, validation, or test.")
         if requested_split in ("train","validation","test"):
             split=requested_split
             previous=content_splits.get(content_key)
