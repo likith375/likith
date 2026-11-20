@@ -34,8 +34,14 @@ class HuggingFaceREINFORCEAdapter:
                 raise ValueError("Tokenizer needs a pad token or EOS token.")
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
-        base_model = AutoModelForCausalLM.from_pretrained(self.path, local_files_only=True)
         self.use_lora = str(config.get("use_lora", "true")).lower() not in {"0", "false", "no"}
+        # LoRA can keep frozen base weights in FP16 on CUDA to reduce VRAM.
+        # Full fine-tuning stays FP32 by default for safer optimizer behavior.
+        self.load_dtype = torch.float16 if self.device.type == "cuda" and self.use_lora else torch.float32
+        base_model = AutoModelForCausalLM.from_pretrained(
+            self.path, local_files_only=True, torch_dtype=self.load_dtype,
+            low_cpu_mem_usage=True,
+        )
         self.lora_r = int(config.get("lora_r", 8))
         self.lora_alpha = int(config.get("lora_alpha", 16))
         self.lora_dropout = float(config.get("lora_dropout", 0.05))
@@ -93,7 +99,7 @@ class HuggingFaceREINFORCEAdapter:
             or getattr(self.model.config, "max_sequence_length", None)
             or 2048
         )
-        self.max_length = max(128, int(configured_length))
+        self.max_length = max(128, min(int(configured_length), 4096))
 
     def diagnostics(self) -> dict[str, Any]:
         """Expose model and trainability details without running a training step."""
@@ -285,16 +291,26 @@ class HuggingFaceREINFORCEAdapter:
         self.lora_dropout = float(metadata.get("lora_dropout", self.lora_dropout))
         self.lora_target_modules = list(metadata.get("lora_target_modules", self.lora_target_modules))
         self.baseline = float(metadata.get("baseline", 0.0))
+        dtype_name=str(metadata.get("torch_dtype","float16" if self.device.type=="cuda" and self.use_lora else "float32"))
+        if dtype_name not in {"float16","bfloat16","float32","float64"}:
+            raise ValueError("Checkpoint contains an unsupported torch dtype.")
+        self.load_dtype=getattr(self.torch,dtype_name)
         base_path = str(metadata.get("base_model_path") or self.base_model_path)
         if self.use_lora:
             try:
                 from peft import PeftModel
             except ImportError as exc:
                 raise RuntimeError("Restoring this LoRA checkpoint requires peft from requirements-ml.txt.") from exc
-            base = AutoModelForCausalLM.from_pretrained(base_path, local_files_only=True)
+            base = AutoModelForCausalLM.from_pretrained(
+                base_path, local_files_only=True, torch_dtype=self.load_dtype,
+                low_cpu_mem_usage=True,
+            )
             self.model = PeftModel.from_pretrained(base, path, is_trainable=True).to(self.device)
         else:
-            self.model = AutoModelForCausalLM.from_pretrained(path, local_files_only=True).to(self.device)
+            self.model = AutoModelForCausalLM.from_pretrained(
+                path, local_files_only=True, torch_dtype=self.load_dtype,
+                low_cpu_mem_usage=True,
+            ).to(self.device)
         self.tokenizer = AutoTokenizer.from_pretrained(path, local_files_only=True)
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
