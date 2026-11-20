@@ -1140,3 +1140,22 @@ def test_generated_task_does_not_retrieve_its_own_reference_answer(tmp_path, mon
     assert task["source_dataset_id"] == "only-source"
     prompt = main.build_prompt(task)
     assert "INERTIA_SECRET_REFERENCE_12345" not in prompt
+
+
+
+def test_prompt_builder_excludes_same_task_verified_correction(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.post("/api/tasks", json={
+        "title": "Leakage guard task", "prompt": "Explain the conservation law",
+        "expected": "LEAKED_CORRECTION_SECRET", "category": "physics"
+    }).json()
+    mistake = client.post("/api/mistakes", json={
+        "task_id": task["id"], "prompt": task["prompt"], "output": "Wrong",
+        "correction": "LEAKED_CORRECTION_SECRET", "evidence": "Trusted source"
+    }).json()
+    client.patch(f"/api/mistakes/{mistake['id']}", json={
+        "verification": "verified", "correction": "LEAKED_CORRECTION_SECRET",
+        "evidence": "Trusted source"
+    })
+    prompt = main.build_prompt(task)
+    assert "LEAKED_CORRECTION_SECRET" not in prompt
