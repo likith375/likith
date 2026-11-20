@@ -1153,10 +1153,11 @@ def test_generated_task_does_not_retrieve_its_own_reference_answer(tmp_path, mon
 
 def test_prompt_builder_excludes_same_task_verified_correction(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
-    task = client.post("/api/tasks", json={
+    client.post("/api/tasks", json={
         "title": "Leakage guard task", "prompt": "Explain the conservation law",
         "expected": "LEAKED_CORRECTION_SECRET", "category": "physics"
-    }).json()
+    })
+    task = next(x for x in client.get("/api/tasks").json() if x["title"] == "Leakage guard task")
     mistake = client.post("/api/mistakes", json={
         "task_id": task["id"], "prompt": task["prompt"], "output": "Wrong",
         "correction": "LEAKED_CORRECTION_SECRET", "evidence": "Trusted source"
