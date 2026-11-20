@@ -364,7 +364,7 @@ def test_task_attempt_history_and_performance(tmp_path, monkeypatch):
     assert next(x for x in performance if x["id"] == task["id"])["attempts"] == 1
 
 
-def test_task_delete_removes_its_attempt_history(tmp_path, monkeypatch):
+def test_task_delete_preserves_its_attempt_history(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
     task = client.get("/api/tasks").json()[0]
     main.record_attempt(task["id"], "", "test prompt", "test output", {
@@ -373,7 +373,7 @@ def test_task_delete_removes_its_attempt_history(tmp_path, monkeypatch):
     response = client.delete(f"/api/tasks/{task['id']}")
     assert response.status_code == 200
     with main.connect() as db:
-        assert db.execute("SELECT COUNT(*) FROM task_attempts WHERE task_id=?", (task["id"],)).fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM task_attempts WHERE task_id=?", (task["id"],)).fetchone()[0] == 1
 
 
 def test_openai_and_sharegpt_conversation_dataset_formats():
@@ -509,3 +509,79 @@ def test_verified_corrections_are_filtered_by_task_domain(tmp_path, monkeypatch)
     science_memory = main.verified_examples(category="science")
     assert len(science_memory) == 1
     assert science_memory[0]["correction"].startswith("Plants convert")
+
+
+
+def test_task_attempt_feedback_is_saved_as_training_reward(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    attempt_id = main.record_attempt(task["id"], "", "Explain a concept", "A generated answer", {
+        "score": 50, "reward": 0, "evaluator": "neutral", "checks": {}
+    })
+    response = client.post(f"/api/attempts/{attempt_id}/feedback", json={
+        "rating": 5, "note": "Correct and clear", "evidence": "Compared with class notes"
+    })
+    assert response.status_code == 200
+    assert response.json()["reward"] == 1
+    assert response.json()["queued_for_training"] is True
+    pending = client.get("/api/feedback?pending_only=true").json()
+    assert len(pending) == 1
+    assert pending[0]["attempt_id"] == attempt_id
+    assert pending[0]["rating"] == 5
+
+
+def test_training_consumes_human_ratings_only_after_real_update(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    attempt_id = main.record_attempt(task["id"], "", "Explain gravity", "Gravity attracts masses.", {
+        "score": 50, "reward": 0, "evaluator": "neutral", "checks": {}
+    })
+    client.post(f"/api/attempts/{attempt_id}/feedback", json={
+        "rating": 1, "note": "Incorrect explanation"
+    })
+    class FeedbackAdapter:
+        name = "human-feedback-test"
+        def __init__(self): self.batches = []
+        def generate(self, prompt, context=None): return "A generated answer with a useful explanation."
+        def train_step(self, batch):
+            self.batches.append(batch)
+            return {"updates": 1, "loss": 0.2}
+        def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            return {"saved": destination}
+        def load_checkpoint(self, source): return {}
+    adapter = FeedbackAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("feedback-run", "queued", 1, main.now()))
+    main.execute_training("feedback-run", {"episodes": 1, "batch_size": 1})
+    assert client.get("/api/runs/feedback-run").json()["status"] == "completed"
+    assert any(batch[0].get("task_id") == task["id"] and batch[0]["reward"] == -1
+               for batch in adapter.batches)
+    assert client.get("/api/feedback?pending_only=true").json() == []
+    with main.connect() as db:
+        row = db.execute("SELECT consumed_at FROM human_feedback").fetchone()
+        assert row["consumed_at"] is not None
+
+
+def test_invalid_feedback_rating_is_rejected(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    attempt_id = main.record_attempt(client.get("/api/tasks").json()[0]["id"], "", "p", "o", {
+        "score": 50, "reward": 0, "evaluator": "test", "checks": {}
+    })
+    response = client.post(f"/api/attempts/{attempt_id}/feedback", json={"rating": 6})
+    assert response.status_code == 422
+
+
+def test_deleting_task_keeps_human_feedback_history(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    attempt_id = main.record_attempt(task["id"], "", "p", "o", {
+        "score": 50, "reward": 0, "evaluator": "test", "checks": {}
+    })
+    client.post(f"/api/attempts/{attempt_id}/feedback", json={"rating": 4})
+    deleted = client.delete(f"/api/tasks/{task['id']}")
+    assert deleted.json()["history_preserved"] is True
+    assert len(client.get("/api/attempts").json()) == 1
+    assert len(client.get("/api/feedback").json()) == 1
