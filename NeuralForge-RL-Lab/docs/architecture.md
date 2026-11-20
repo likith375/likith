@@ -58,10 +58,10 @@ See `adapters/custom_adapter.py`. The training service calls:
 ## Human feedback loop
 
 1. A task attempt receives a stable `attempt_id`.
-2. A reviewer submits a 1–5 rating and optional notes/correction/evidence to `POST /api/attempts/{attempt_id}/feedback`.
+2. A reviewer submits a 1–5 rating and optional notes/correction/evidence to `POST /api/attempts/{attempt_id}/feedback`. A supplied correction becomes an unverified mistake candidate, not immediate training data.
 3. Ratings map to rewards: 1 → -1, 2 → -0.5, 3 → 0, 4 → 0.5, 5 → 1.
 4. The next training run replays up to 64 pending rated attempts through `train_step`.
 5. Feedback is marked consumed only after the adapter reports a valid, positive update count. Failed updates leave feedback pending for retry.
-6. Inspect pending and historical feedback with `GET /api/feedback`; inspect immutable attempts with `GET /api/attempts`.
+6. A human correction becomes supervised training data only after it is separately verified with evidence in the mistake-review workflow. Inspect pending and historical feedback with `GET /api/feedback`; inspect immutable attempts with `GET /api/attempts`.
 
 The batch passed to `train_step` is a list of objects containing prompt, completion, reward and task ID. Reward is currently in the approximate range -1 to +1.
