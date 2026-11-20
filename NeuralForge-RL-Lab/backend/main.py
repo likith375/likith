@@ -553,9 +553,9 @@ def normalize_dataset_row(row: dict[str, Any], index: int, default_category: str
                 if not content: content=turns[assistant_index][1]
                 if not prompt:
                     context=turns[:assistant_index]
-                    prompt="\\n".join(f"{role}: {value}" for role,value in context if role in user_roles or role in {"system","developer"})
+                    prompt="\n".join(f"{role}: {value}" for role,value in context if role in user_roles or role in {"system","developer"})
             elif not prompt:
-                prompt="\\n".join(f"{role}: {value}" for role,value in turns if role in user_roles)
+                prompt="\n".join(f"{role}: {value}" for role,value in turns if role in user_roles)
 
     if not prompt: prompt=f"Example {index+1}"
     if not content: return None
