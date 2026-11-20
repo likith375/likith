@@ -780,16 +780,32 @@ def normalize_dataset_row(row: dict[str, Any], index: int, default_category: str
 
 def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, source_name: str,
                           digest: str | None = None, document_chunks: bool = False) -> list[tuple]:
-    """Normalize imported schemas and prevent chunks of one document leaking across splits."""
+    """Normalize imports and keep exact duplicate examples in one data split."""
     prepared=[]
+    content_splits={}
+    unique_group_index=0
+    split_pattern=("train","train","train","train","train","train","train","train","validation","test")
     for index,row in enumerate(rows):
         if not isinstance(row,dict): continue
         item=normalize_dataset_row(row,index,default_category)
         if not item: continue
-        split=item["split"]
-        if split not in ("train","validation","test"):
-            # A single document is a reference corpus, not three independent examples.
-            split="train" if document_chunks else ("validation" if index%10==8 else "test" if index%10==9 else "train")
+        content_key=hashlib.sha256(item["content"].encode("utf-8")).hexdigest()
+        requested_split=item["split"]
+        if requested_split in ("train","validation","test"):
+            split=requested_split
+            previous=content_splits.get(content_key)
+            if previous and previous!=split:
+                raise ValueError("Identical content cannot be assigned to different train/validation/test splits.")
+            content_splits[content_key]=split
+        elif content_key in content_splits:
+            split=content_splits[content_key]
+        elif document_chunks:
+            split="train"
+            content_splits[content_key]=split
+        else:
+            split=split_pattern[unique_group_index%len(split_pattern)]
+            content_splits[content_key]=split
+            unique_group_index+=1
         chunks=chunk_reference_text(item["content"]) if document_chunks else [item["content"]]
         for chunk_index,chunk in enumerate(chunks,1):
             name=item["prompt"] if len(chunks)==1 else f"{item['prompt']} (part {chunk_index}/{len(chunks)})"
