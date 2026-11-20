@@ -8,6 +8,12 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
+py -3 -c "import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)"
+if errorlevel 1 (
+    echo Python 3.10 or newer is required.
+    pause
+    exit /b 1
+)
 
 if not exist ".venv\Scripts\python.exe" (
     echo Creating NeuralForge virtual environment...
