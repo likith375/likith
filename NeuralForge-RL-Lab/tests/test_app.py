@@ -1230,3 +1230,31 @@ def test_dataset_split_update_can_resolve_exact_duplicate_leakage(tmp_path, monk
     assert moved_out.json()["disabled_generated_tasks"] == 1
     task = next(x for x in client.get("/api/tasks").json() if x["id"] == "split-task")
     assert task["enabled"] == 0
+
+
+
+def test_duplicate_content_in_new_import_inherits_existing_split(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("existing-copy", "Existing", "science", "validation", "shared reference", main.now()))
+    mapping = main.existing_dataset_content_splits()
+    prepared = main.prepared_dataset_rows(
+        [{"prompt": "New copy", "content": "shared reference"}],
+        "science", "second.jsonl", existing_content_splits=mapping
+    )
+    assert prepared[0][3] == "validation"
+
+
+def test_new_import_rejects_explicit_split_conflicting_with_existing_duplicate(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("existing-copy", "Existing", "science", "validation", "shared reference", main.now()))
+    mapping = main.existing_dataset_content_splits()
+    import pytest
+    with pytest.raises(ValueError, match="Identical content"):
+        main.prepared_dataset_rows(
+            [{"prompt": "New copy", "content": "shared reference", "split": "test"}],
+            "science", "second.jsonl", existing_content_splits=mapping
+        )
