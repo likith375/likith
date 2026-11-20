@@ -5,3 +5,5 @@
 .state.stopped{color:#c1d6e8;border-color:#47617a}.task-actions button:disabled,.run-controls button:disabled{opacity:.5;cursor:not-allowed}
 
 .review-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.review-fields textarea{min-height:75px}.review-fields label{font-size:11px;color:var(--muted)}@media(max-width:600px){.review-fields{grid-template-columns:1fr}}
+
+.state.interrupted{color:#e6c58a;border-color:#6a5834}
