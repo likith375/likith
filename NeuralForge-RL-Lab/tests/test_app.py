@@ -1589,3 +1589,36 @@ def test_training_preflight_does_not_count_orphaned_generated_tasks(tmp_path, mo
     assert preview["enabled_tasks"] == 0
     assert preview["orphaned_generated_tasks"] == 1
     assert preview["ready"] is False
+
+
+
+def test_supervised_batches_run_even_when_reward_is_neutral(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class NeutralWithSFTAdapter:
+        name = "neutral-with-sft"
+        def __init__(self): self.supervised_calls = 0
+        def generate(self, prompt, context=None): return "A neutral answer."
+        def evaluate(self, prompt, output, expected, domain):
+            return {"score": 50, "reward": 0, "checks": {}, "evaluator": "neutral-test"}
+        def supervised_step(self, batch):
+            assert batch
+            self.supervised_calls += 1
+            return {"updates": 1, "loss": 0.3}
+        def train_step(self, batch):
+            raise AssertionError("Neutral reward samples should not reach train_step")
+        def save_checkpoint(self, destination):
+            folder = Path(destination)
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "weights.bin").write_bytes(b"updated weights")
+            return {}
+        def load_checkpoint(self, source): return {}
+    adapter = NeutralWithSFTAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("neutral-sft-run", "queued", 2, main.now()))
+    main.execute_training("neutral-sft-run", {"episodes": 2, "batch_size": 1})
+    run = client.get("/api/runs/neutral-sft-run").json()
+    assert run["status"] == "completed"
+    assert adapter.supervised_calls == 2
+    assert run["real_updates"] == 2
