@@ -1066,3 +1066,34 @@ def test_neutral_rating_is_recorded_but_not_queued_for_training(tmp_path, monkey
     assert len(client.get("/api/feedback").json()) == 1
     assert client.get("/api/feedback?pending_only=true").json() == []
     assert client.get("/api/training/preview").json()["pending_human_feedback"] == 0
+
+
+
+def test_evaluate_endpoint_uses_python_syntax_checker_without_model():
+    from fastapi.testclient import TestClient
+    client = TestClient(main.app)
+    response = client.post("/api/evaluate", json={
+        "domain": "python", "output": "def broken(:"
+    })
+    assert response.status_code == 200
+    assert response.json()["checks"]["python_syntax_valid"] is False
+
+
+def test_evaluate_endpoint_uses_configured_domain_evaluator(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    client.put("/api/adapter/config", json={"adapter_spec": "tests.fake:load_adapter"})
+    class DomainAdapter:
+        name = "domain-evaluator"
+        def evaluate(self, prompt, output, expected, domain):
+            return {"score": 91, "reward": 0.82, "checks": {"verified": True}}
+        def generate(self, prompt, context=None): return "unused"
+        def train_step(self, batch): return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination): return {}
+        def load_checkpoint(self, source): return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: DomainAdapter())
+    response = client.post("/api/evaluate", json={
+        "domain": "science", "prompt": "Explain gravity", "output": "Gravity answer"
+    })
+    assert response.status_code == 200
+    assert response.json()["score"] == 91
+    assert response.json()["checks"]["verified"] is True
