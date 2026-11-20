@@ -1525,6 +1525,19 @@ def start_run(request:RunIn, background:BackgroundTasks):
             active=c.execute("SELECT id,status FROM runs WHERE status IN ('queued','running') LIMIT 1").fetchone()
             if active:
                 raise HTTPException(409,f"Training run {active['id']} is already {active['status']}. Stop or finish it before starting another.")
+            c.execute("""UPDATE tasks SET enabled=0
+                         WHERE enabled=1 AND COALESCE(source_dataset_id,'')<>''
+                           AND NOT EXISTS (SELECT 1 FROM datasets d
+                                           WHERE d.id=tasks.source_dataset_id AND d.split='train')""")
+            task_count=c.execute("SELECT COUNT(*) FROM tasks WHERE enabled=1").fetchone()[0]
+            train_count=c.execute("SELECT COUNT(*) FROM datasets WHERE split='train'").fetchone()[0]
+            cfg={row["key"]:row["value"] for row in c.execute("SELECT key,value FROM adapter_settings")}
+            if not task_count:
+                raise HTTPException(400,"Create at least one enabled task before starting training.")
+            if not train_count:
+                raise HTTPException(400,"Import at least one train-split dataset example before starting training.")
+            if not (cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip()):
+                raise HTTPException(400,"Connect a model adapter or local model before starting training.")
             c.execute("INSERT INTO runs(id,status,episodes,reward,success_rate,real_updates,notes,created_at,duration_hours) VALUES(?,?,?,?,?,?,?,?,?)",
                       (rid,"queued",request.episodes,0,0,0,"Queued; imported train-split examples and reward feedback will be used when supported by the adapter.",now(),request.duration_hours))
     background.add_task(execute_training,rid,request.model_dump())
