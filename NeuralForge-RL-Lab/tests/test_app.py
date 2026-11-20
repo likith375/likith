@@ -1168,3 +1168,24 @@ def test_prompt_builder_excludes_same_task_verified_correction(tmp_path, monkeyp
     })
     prompt = main.build_prompt(task)
     assert "LEAKED_CORRECTION_SECRET" not in prompt
+
+
+
+def test_exact_duplicate_examples_share_the_same_dataset_split():
+    rows = [
+        {"prompt": "First copy", "content": "Identical reference"},
+        {"prompt": "Another item", "content": "Different reference"},
+        {"prompt": "Second copy", "content": "Identical reference"},
+    ]
+    prepared = main.prepared_dataset_rows(rows, "general", "duplicates.jsonl")
+    assert prepared[0][3] == prepared[2][3]
+
+
+def test_conflicting_explicit_splits_for_duplicate_content_are_rejected():
+    rows = [
+        {"prompt": "Train copy", "content": "Same answer", "split": "train"},
+        {"prompt": "Test copy", "content": "Same answer", "split": "test"},
+    ]
+    import pytest
+    with pytest.raises(ValueError, match="Identical content"):
+        main.prepared_dataset_rows(rows, "general", "leaky.jsonl")
