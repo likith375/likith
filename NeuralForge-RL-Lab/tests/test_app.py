@@ -1214,8 +1214,18 @@ def test_dataset_split_update_can_resolve_exact_duplicate_leakage(tmp_path, monk
                    ("split-train", "Train", "science", "train", "same content", main.now()))
         db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
                    ("split-test", "Test", "science", "test", "same content", main.now()))
+        db.execute("""INSERT INTO tasks
+          (id,title,prompt,expected,difficulty,category,source_dataset_id,created_at)
+          VALUES(?,?,?,?,?,?,?,?)""",
+          ("split-task", "Generated task", "Prompt", "Answer", "easy", "science",
+           "split-test", main.now()))
     conflict = client.patch("/api/datasets/split-test/split", json={"split": "validation"})
     assert conflict.status_code == 409
     fixed = client.patch("/api/datasets/split-test/split", json={"split": "train"})
     assert fixed.status_code == 200
     assert client.get("/api/datasets/stats").json()["duplicate_split_conflicts"] == 0
+    moved_out = client.patch("/api/datasets/split-test/split", json={"split": "validation"})
+    assert moved_out.status_code == 200
+    assert moved_out.json()["disabled_generated_tasks"] == 1
+    task = next(x for x in client.get("/api/tasks").json() if x["id"] == "split-task")
+    assert task["enabled"] is False
