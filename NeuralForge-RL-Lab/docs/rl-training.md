@@ -55,3 +55,7 @@ Never run untrusted generated code in the main API process.
 ## Training safety
 
 Start with a copy of your model. Use a small learning rate and small batches. Save a checkpoint before training, run a short experiment, then compare validation results. Stop if validation quality drops, the loss becomes non-finite, or the model starts repeating or emitting malformed code.
+
+## Long training sessions
+
+A run can be limited by a maximum episode count and an optional time budget of up to 24 hours. The time budget is an upper bound, not a promise that the run will consume the full duration. Set a sufficiently high episode cap if you want the clock to be the limiting condition. The Stop button requests a graceful stop after the current batch. The computer or Codespace must remain available; closing a browser tab alone does not stop the server-side worker, but a sleeping or stopped Codespace will interrupt the process.
