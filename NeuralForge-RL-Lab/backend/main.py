@@ -611,9 +611,9 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
         pages = []
         for page_number, page in enumerate(reader.pages, 1):
             page_text = page.extract_text() or ""
-            for chunk_index, chunk in enumerate(chunk_reference_text(page_text), 1):
-                pages.append({"prompt": f"{Path(filename).name} page {page_number} part {chunk_index}",
-                              "content": chunk, "category": "document", "split": "train"})
+            if page_text.strip():
+                pages.append({"prompt": f"{Path(filename).name} page {page_number}",
+                              "content": page_text, "category": "document", "split": "train"})
         if not pages:
             raise ValueError("No selectable text was found in this PDF. Scanned-image OCR is not supported yet.")
         return pages
@@ -632,8 +632,7 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
         if not content:
             raise ValueError("No readable text was found in this DOCX file.")
         return [{"prompt": f"Reference material: {Path(filename).name}",
-                 "content": chunk, "category": "document", "split": "train"}
-                for chunk in chunk_reference_text(content)]
+                 "content": content, "category": "document", "split": "train"}]
     decoded = raw.decode("utf-8-sig")
     if suffix == ".jsonl":
         return [json.loads(line) for line in decoded.splitlines() if line.strip()]
@@ -654,11 +653,8 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
                               "content": str(source), "category": "jupyter-" + str(cell.get("cell_type","code"))})
         return cells
     if suffix in TEXT_EXTENSIONS:
-        is_document=suffix in {".txt",".md",".rst",".pdf",".docx",".html",".htm",".xml"}
-        chunks=chunk_reference_text(decoded) if is_document else [decoded]
         return [{"prompt": f"Reference material: {Path(filename).name}",
-                 "content": chunk, "category": suffix.lstrip(".") or "general", "split":"train"}
-                for chunk in chunks]
+                 "content": decoded, "category": suffix.lstrip(".") or "general", "split":"train"}]
     raise ValueError("Unsupported or binary file type.")
 
 @app.post("/api/datasets/import")
