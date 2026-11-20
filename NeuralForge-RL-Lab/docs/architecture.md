@@ -4,7 +4,7 @@
 
 - **Dashboard:** static HTML/CSS/JavaScript. It calls the FastAPI JSON API.
 - **API and orchestration:** `backend/main.py` handles imports, task management, evaluation, review events, training runs and checkpoints.
-- **Persistence:** SQLite stores datasets, tasks, mistake records, review events, runs, adapter settings and checkpoint metadata.
+- **Persistence:** SQLite stores datasets, tasks, mistake records, review events, runs, benchmark results, adapter settings and checkpoint metadata. A JSONL audit file is appended under `data/mistakes/`.
 - **Adapter boundary:** the lab calls a model through a small Python interface. The model itself remains yours.
 - **Optional HF adapter:** `backend/hf_adapter.py` loads a local Transformers causal language model and performs a REINFORCE-style update.
 
@@ -25,6 +25,8 @@ flowchart TD
   H --> K[Adapter train_step]
   K --> L[Updated model weights]
   L --> M[Checkpoint manager]
+  N[Validation / test split] --> O[Benchmark runner]
+  O --> P[Benchmark history]
 ```
 
 ## Persistence rules
