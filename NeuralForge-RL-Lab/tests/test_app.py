@@ -820,3 +820,23 @@ def test_adapter_configuration_cannot_change_during_active_training(tmp_path, mo
     assert response.status_code == 409
     after = client.get("/api/adapter/config").json()
     assert after["learning_rate"] == before["learning_rate"]
+
+
+
+def test_mistake_api_rejects_oversized_text_fields(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    response = client.post("/api/mistakes", json={
+        "prompt": "p" * 12001, "output": "short"
+    })
+    assert response.status_code == 422
+
+
+def test_feedback_rating_requires_integer_between_one_and_five(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    attempt_id = main.record_attempt(client.get("/api/tasks").json()[0]["id"], "", "p", "o", {
+        "score": 50, "reward": 0, "evaluator": "test", "checks": {}
+    })
+    fractional = client.post(f"/api/attempts/{attempt_id}/feedback", json={"rating": 3.5})
+    too_high = client.post(f"/api/attempts/{attempt_id}/feedback", json={"rating": 6})
+    assert fractional.status_code == 422
+    assert too_high.status_code == 422
