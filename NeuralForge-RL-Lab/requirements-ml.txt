@@ -1,0 +1,6 @@
+# Install only if using the built-in Hugging Face REINFORCE adapter.
+-r requirements.txt
+torch>=2.2
+transformers>=4.45
+accelerate>=0.34
+safetensors>=0.4
