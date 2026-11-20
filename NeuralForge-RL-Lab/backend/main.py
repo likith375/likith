@@ -345,7 +345,7 @@ def import_inbox_folder():
         digest=hashlib.sha256(raw).hexdigest()
         metadata=json.dumps({"source_file":path.name,"sha256":digest},ensure_ascii=False)
         with connect() as c:
-            if c.execute("SELECT 1 FROM datasets WHERE metadata_json=? LIMIT 1",(metadata,)).fetchone():
+            if c.execute("SELECT 1 FROM datasets WHERE metadata_json LIKE ? LIMIT 1",("%"+digest+"%",)).fetchone():
                 skipped.append({"file":path.name,"reason":"already imported"})
                 continue
         try:
