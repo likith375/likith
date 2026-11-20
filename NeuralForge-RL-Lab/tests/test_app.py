@@ -45,6 +45,8 @@ def test_mistake_review_is_append_only(tmp_path, monkeypatch):
     after = client.get("/api/mistakes?verification=verified").json()[0]
     assert before["output"] == after["output"] == "wrong output"
     assert after["verification"] == "verified"
+    assert main.verified_examples()[0]["correction"] == 'local p = Instance.new("Part")'
+    assert client.get("/api/overview").json()["verified"] == 1
     with main.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM mistake_events WHERE mistake_id=?", (created["id"],)).fetchone()[0] == 1
 
