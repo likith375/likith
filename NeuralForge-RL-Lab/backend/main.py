@@ -1323,6 +1323,11 @@ def delete_task(task_id: str):
 def try_task(task_id: str):
     with connect() as c:
         task=c.execute("SELECT * FROM tasks WHERE id=? AND enabled=1",(task_id,)).fetchone()
+        if task and task["source_dataset_id"]:
+            source=c.execute("SELECT split FROM datasets WHERE id=?",(task["source_dataset_id"],)).fetchone()
+            if not source or source["split"]!="train":
+                c.execute("UPDATE tasks SET enabled=0 WHERE id=?",(task_id,))
+                raise HTTPException(409,"This generated task's source is missing or outside train; it has been disabled.")
     if not task: raise HTTPException(404,"Enabled task not found.")
     try:
         adapter=get_adapter()
