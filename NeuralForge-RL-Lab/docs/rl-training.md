@@ -89,3 +89,6 @@ An adapter must always return an explicit non-negative integer `updates` count. 
 Before training, NeuralForge writes a non-empty model checkpoint. If a later training operation or final checkpoint fails, it attempts to reload that pre-training snapshot and records whether rollback succeeded. If the adapter cannot restore it, the run error identifies the failure and the safety checkpoint path.
 
 Restoring a saved checkpoint also creates a safety snapshot of the currently loaded model first. If the requested checkpoint fails to load, NeuralForge attempts to restore the previous model automatically.
+
+
+Supervised batches are scheduled by episode cadence, not by the number of non-neutral reward samples. This means train-split examples and verified corrections can still produce supervised updates when an evaluator returns neutral reward for the model's generated attempts.
