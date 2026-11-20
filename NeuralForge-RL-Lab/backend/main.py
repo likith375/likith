@@ -964,8 +964,12 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
 async def import_data(file: UploadFile=File(...), category: str="general"):
     if not file.filename or Path(file.filename).suffix.lower() not in DATASET_EXTENSIONS:
         raise HTTPException(400,"Unsupported file type. Upload supported datasets, source code, notebooks, text, or documentation files.")
-    raw=await file.read()
-    if len(raw)>15*1024*1024: raise HTTPException(413,"Dataset file exceeds the 15 MB import limit.")
+    # Read at most one byte beyond the limit; do not buffer an arbitrarily large upload.
+    raw=await file.read(15*1024*1024+1)
+    if len(raw)>15*1024*1024:
+        await file.close()
+        raise HTTPException(413,"Dataset file exceeds the 15 MB import limit.")
+    await file.close()
     try:
         rows=parse_uploaded_material(file.filename, raw)
     except Exception as exc:
@@ -1042,7 +1046,11 @@ def delete_dataset(dataset_id: str):
         cur = c.execute("DELETE FROM datasets WHERE id=?", (dataset_id,))
         if not cur.rowcount:
             raise HTTPException(404, "Dataset example not found.")
-    return {"deleted": True, "id": dataset_id}
+        disabled=c.execute("UPDATE tasks SET enabled=0 WHERE source_dataset_id=? AND enabled=1",
+                           (dataset_id,)).rowcount
+    return {"deleted": True, "id": dataset_id,
+            "disabled_generated_tasks": disabled,
+            "task_history_preserved": True}
 
 @app.patch("/api/datasets/{dataset_id}/split")
 def update_dataset_split(dataset_id: str, payload: DatasetSplitIn):
