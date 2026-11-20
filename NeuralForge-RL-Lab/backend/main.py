@@ -1,7 +1,8 @@
-"""NeuralForge RL Lab — local-first API and training orchestration.
+"""NeuralForge RL Lab — local-first, domain-independent API and training orchestration.
 
-Generated Luau is never executed by this server. Evaluation is static unless a
-future, explicitly sandboxed evaluator is configured by the owner.
+Uploaded/generated code is never executed by this server. The default evaluator
+uses static heuristics (plus Python AST syntax checks); trusted adapters may
+supply domain-specific evaluation without executing untrusted output.
 """
 from __future__ import annotations
 import ast, csv, hashlib, importlib, io, json, os, re, sqlite3, threading, time, uuid
