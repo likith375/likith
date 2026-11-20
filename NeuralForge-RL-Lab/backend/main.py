@@ -659,10 +659,13 @@ def dataset_stats():
         lengths=c.execute("SELECT MIN(LENGTH(content)),AVG(LENGTH(content)),MAX(LENGTH(content)) FROM datasets").fetchone()
         duplicates=c.execute("""SELECT COUNT(*) FROM (
             SELECT content FROM datasets GROUP BY content HAVING COUNT(*)>1)""").fetchone()[0]
+        split_conflicts=c.execute("""SELECT COUNT(*) FROM (
+            SELECT content FROM datasets GROUP BY content HAVING COUNT(DISTINCT split)>1)""").fetchone()[0]
         empty=c.execute("SELECT COUNT(*) FROM datasets WHERE TRIM(content)=''").fetchone()[0]
     return {"total":total,"by_split":by_split,"by_category":by_category,
             "content_characters":{"min":lengths[0] or 0,"average":round(lengths[1] or 0,1),"max":lengths[2] or 0},
-            "duplicate_content_groups":duplicates,"empty_examples":empty}
+            "duplicate_content_groups":duplicates,"duplicate_split_conflicts":split_conflicts,
+            "empty_examples":empty}
 
 
 @app.get("/api/training/preview")
@@ -673,6 +676,8 @@ def training_preview():
         split_counts={row["split"]:row["count"] for row in c.execute(
             "SELECT split,COUNT(*) AS count FROM datasets GROUP BY split")}
         pending=c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_at IS NULL AND reward<>0").fetchone()[0]
+        split_conflicts=c.execute("""SELECT COUNT(*) FROM (
+            SELECT content FROM datasets GROUP BY content HAVING COUNT(DISTINCT split)>1)""").fetchone()[0]
         verified=c.execute("""SELECT COUNT(*) FROM mistakes m WHERE COALESCE(
             (SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
              ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'
@@ -685,6 +690,7 @@ def training_preview():
     if not (cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip()):
         warnings.append("Connect a model adapter before training.")
     if not pending: warnings.append("No human-rated attempts are waiting for reward replay.")
+    if split_conflicts: warnings.append(f"{split_conflicts} exact duplicate content group(s) appear in multiple splits; benchmark leakage is possible.")
     if active: warnings.append("A training run is already "+active["status"]+".")
     return {"ready":not any(message.startswith(("Create","Import","Connect","A training")) for message in warnings),
             "enabled_tasks":task_count,"dataset_splits":split_counts,
