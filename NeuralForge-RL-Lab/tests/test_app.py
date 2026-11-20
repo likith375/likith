@@ -1502,3 +1502,15 @@ def test_checkpoint_delete_refuses_paths_outside_checkpoint_directory(tmp_path, 
     response = client.delete("/api/checkpoints/external-path")
     assert response.status_code == 400
     assert protected.read_text(encoding="utf-8") == "keep me"
+
+
+
+def test_dataset_import_serializes_spreadsheet_datetime_metadata():
+    from datetime import datetime
+    prepared = main.prepared_dataset_rows([
+        {"prompt": "What happened?", "content": "An event.", "metadata": {
+            "date": datetime(2025, 1, 2, 3, 4, 5)
+        }}
+    ], "history", "events.xlsx")
+    metadata = json.loads(prepared[0][5])
+    assert metadata["row_metadata"]["date"] == "2025-01-02 03:04:05"
