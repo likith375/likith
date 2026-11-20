@@ -5,7 +5,7 @@ uses static heuristics (plus Python AST syntax checks); trusted adapters may
 supply domain-specific evaluation without executing untrusted output.
 """
 from __future__ import annotations
-import ast, csv, hashlib, importlib, io, json, os, random, re, shutil, sqlite3, threading, time, uuid
+import ast, csv, hashlib, importlib, io, json, os, random, re, shutil, sqlite3, threading, time, uuid, zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -887,8 +887,30 @@ def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, sou
     return prepared
 
 
+def validate_ooxml_archive(raw: bytes) -> None:
+    """Reject oversized or suspicious OOXML ZIP containers before parsing."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            entries=archive.infolist()
+    except zipfile.BadZipFile as exc:
+        raise ValueError("Office document is not a valid ZIP-based OOXML file.") from exc
+    if len(entries)>5000:
+        raise ValueError("Office document contains too many archive entries.")
+    expanded=sum(entry.file_size for entry in entries)
+    if expanded>100*1024*1024:
+        raise ValueError("Office document expands beyond the 100 MB safety limit.")
+    for entry in entries:
+        if entry.file_size>30*1024*1024:
+            raise ValueError("An Office document component exceeds the 30 MB safety limit.")
+        if entry.file_size>1024*1024 and entry.compress_size>0:
+            if entry.file_size/entry.compress_size>200:
+                raise ValueError("Office document contains a suspiciously high compression ratio.")
+
+
 def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
     suffix = Path(filename).suffix.lower()
+    if suffix in {".docx",".xlsx",".pptx"}:
+        validate_ooxml_archive(raw)
     if suffix == ".pdf":
         try:
             from pypdf import PdfReader
