@@ -685,6 +685,7 @@ def test_verified_mistake_corrections_are_reused_for_supervised_training(tmp_pat
 
 def test_adapter_status_includes_non_mutating_diagnostics(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
+    client.put("/api/adapter/config", json={"adapter_spec": "tests.fake:load_adapter"})
     class DiagnosticAdapter:
         name = "diagnostic-adapter"
         def generate(self, prompt, context=None): return "sample"
