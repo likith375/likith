@@ -580,8 +580,9 @@ def test_training_consumes_human_ratings_only_after_real_update(tmp_path, monkey
                for batch in adapter.batches)
     assert client.get("/api/feedback?pending_only=true").json() == []
     with main.connect() as db:
-        row = db.execute("SELECT consumed_at FROM human_feedback").fetchone()
+        row = db.execute("SELECT consumed_at,consumed_run_id FROM human_feedback").fetchone()
         assert row["consumed_at"] is not None
+        assert row["consumed_run_id"] == "feedback-run"
 
 
 def test_invalid_feedback_rating_is_rejected(tmp_path, monkeypatch):
