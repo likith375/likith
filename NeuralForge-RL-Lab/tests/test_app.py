@@ -1037,3 +1037,17 @@ def test_generic_evaluator_rejects_unmatched_delimiter_counts():
     assert result["checks"]["balanced_delimiters"] is False
     assert result["score"] == 25
     assert result["reward"] == -0.5
+
+
+
+def test_dashboard_and_openapi_are_served(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    dashboard = client.get("/")
+    schema = client.get("/openapi.json")
+    assert dashboard.status_code == 200
+    assert "NeuralForge RL Lab" in dashboard.text
+    assert schema.status_code == 200
+    paths = schema.json()["paths"]
+    assert "/api/attempts/{attempt_id}/feedback" in paths
+    assert "/api/training/preview" in paths
+    assert "/api/runs/{run_id}/report" in paths
