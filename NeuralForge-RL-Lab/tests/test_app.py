@@ -157,3 +157,15 @@ def test_queued_run_can_be_stopped(tmp_path, monkeypatch):
     assert response.json()["stop_requested"] is True
     with main.connect() as db:
         assert db.execute("SELECT stop_requested FROM runs WHERE id='stop-me'").fetchone()[0] == 1
+
+def test_verification_requires_correction_and_evidence(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    created = client.post("/api/mistakes", json={
+        "prompt": "Make a door", "output": "broken",
+        "category": "failed_tasks"
+    }).json()
+    response = client.patch(f"/api/mistakes/{created['id']}", json={
+        "verification": "verified", "correction": "local door = Instance.new(\"Part\")"
+    })
+    assert response.status_code == 400
+    assert client.get("/api/mistakes?verification=unverified").json()
