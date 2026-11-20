@@ -1,17 +1,17 @@
 # NeuralForge RL Lab
 
-**A local-first training workbench for connecting your own scratch-built AI and teaching it Roblox Luau.**
+**A domain-independent, local-first training workbench for connecting your own AI and teaching it across subjects.**
 
-NeuralForge is the training software, not a prebuilt AI assistant. You bring a Python model and tokenizer; the lab organizes knowledge, generates tasks, scores attempts, preserves mistakes, supplies reviewed examples, orchestrates reward-based updates, and manages checkpoints.
+NeuralForge is the training software, not a prebuilt AI assistant. You bring a model adapter; the lab organizes material from programming, science, mathematics, writing, engineering, languages, and other fields; generates tasks; scores attempts; preserves mistakes; supplies reviewed examples; orchestrates training updates; and manages checkpoints.
 
 ## What is included
 
 - FastAPI backend, SQLite persistence, and a responsive browser dashboard.
-- JSONL, JSON and CSV dataset import, filtering, and JSONL export.
+- JSONL, JSON, CSV, Jupyter notebooks, source code, markup, configuration, and text/document import, filtering, and JSONL export.
 - Train / validation / test split support.
 - Task studio with difficulty, category, expected behavior, and enable/disable controls.
 - Append-only mistake records with a separate review-event history. Only verified corrections are added to future task prompts.
-- Static Luau response heuristics with transparent checks and explicit warnings.
+- Generic static response heuristics with transparent checks and explicit warnings.
 - Background training runs, live run polling, reward and loss metrics.
 - Optional training time budget up to 24 hours, episode cap, and graceful stop control.
 - Combined supervised fine-tuning on imported train-split examples plus reward-based updates when the adapter supports it.
@@ -88,7 +88,7 @@ Download or prepare a **local** causal language model directory that is compatib
 
 The built-in adapter uses sampled response tokens and a REINFORCE-style reward objective. It is an experimental baseline for learning workflows, not a state-of-the-art coding model. It does not download model weights or call paid APIs.
 
-## Dataset formats
+## Supported upload formats
 
 JSONL is recommended. Each line is one JSON object:
 
@@ -96,13 +96,13 @@ JSONL is recommended. Each line is one JSON object:
 {"prompt":"Create a part","category":"instances","content":"local part = Instance.new(\"Part\")","split":"train"}
 ```
 
-Accepted code fields: `content`, `code`, `completion`, `output`, or `text`.
+Accepted content fields: `content`, `code`, `completion`, `output`, or `text`. Plain-text source and documentation files are imported as reference examples; Jupyter notebooks are split into cells. Binary formats such as PDF and DOCX are not parsed yet.
 
 Accepted prompt fields: `prompt`, `instruction`, or `title`.
 
 If `split` is omitted, the importer assigns most examples to train and periodically assigns validation/test rows. For serious experiments, provide your own splits and keep near-duplicate examples in the same split to avoid leakage.
 
-A 29-example Luau starter file is available at `examples/luau_training_starter.jsonl`.
+The optional Luau starter corpus remains available as one subject-specific example; it is not required for other subjects.
 
 ## Reinforcement-learning loop
 
@@ -119,7 +119,7 @@ Read `docs/rl-training.md` before interpreting the metrics.
 
 ## Important limitations
 
-- **No Roblox runtime execution:** the current evaluator checks text structure and reference-string matches. It cannot prove a script works in Roblox Studio. Do not treat a high score as a runtime pass.
+- **No automatic execution or domain-specific verification:** the current evaluator checks text structure and reference-string matches. It cannot prove a script works in Roblox Studio. Do not treat a high score as a runtime pass.
 - **Reward quality matters:** the built-in static reward is a baseline. Better results require a carefully designed evaluator and reviewed task/reference data.
 - **REINFORCE is experimental:** it may be unstable, especially with small datasets, small models, or noisy rewards. Keep backups and compare held-out validation/test results.
 - **Local resources:** training speed and memory use depend on your model size, hardware, and batch settings.
