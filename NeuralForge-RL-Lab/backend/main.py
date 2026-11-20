@@ -112,6 +112,17 @@ def init_db():
             for name, cat, code, split in seed:
                 c.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
                           (str(uuid.uuid4()),name,cat,split,code,now()))
+        # Bootstrap the curated Luau starter corpus once, including for existing early-prototype databases.
+        if not c.execute("SELECT 1 FROM datasets WHERE metadata_json LIKE '%seed_corpus%' LIMIT 1").fetchone():
+            starter=ROOT / "examples" / "luau_training_starter.jsonl"
+            if starter.exists():
+                for line in starter.read_text(encoding="utf-8").splitlines():
+                    if not line.strip(): continue
+                    item=json.loads(line)
+                    c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",
+                              (str(uuid.uuid4()),item.get("prompt","Luau starter example"),item.get("category","luau"),
+                               item.get("split","train"),item.get("content",""),
+                               json.dumps({"seed_corpus":True,"source_file":"examples/luau_training_starter.jsonl"}),now()))
         if c.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0:
             c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,created_at) VALUES(?,?,?,?,?,?,?)",
                       (str(uuid.uuid4()),"Create a health variable","Declare a local variable named health with value 100.",
