@@ -486,7 +486,7 @@ def _execute_training_locked(run_id, request):
             pending_feedback=c.execute("""
               SELECT f.id,f.reward,a.prompt,a.output,a.task_id
               FROM human_feedback f JOIN task_attempts a ON a.id=f.attempt_id
-              WHERE f.consumed_at IS NULL
+              WHERE f.consumed_at IS NULL AND f.reward<>0
               ORDER BY f.created_at,f.id LIMIT 64
             """).fetchall()
         feedback_batch=[{"prompt":row["prompt"],"completion":row["output"],
@@ -620,7 +620,7 @@ def overview():
                   (SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
                    ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'""").fetchone()[0],
                 "human_feedback":c.execute("SELECT COUNT(*) FROM human_feedback").fetchone()[0],
-                "pending_feedback":c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_at IS NULL").fetchone()[0],
+                "pending_feedback":c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_at IS NULL AND reward<>0").fetchone()[0],
                 "runs":c.execute("SELECT COUNT(*) FROM runs").fetchone()[0],
                 "completed_runs":c.execute("SELECT COUNT(*) FROM runs WHERE status='completed'").fetchone()[0]}
 
@@ -1030,7 +1030,7 @@ def submit_attempt_feedback(attempt_id: str, payload: FeedbackIn):
             "mistake_id":mistake_id,"attempt_id":attempt_id,
             "verification":"unverified","note":"Human correction requires evidence review before supervised training."})
     return {"id":feedback_id,"attempt_id":attempt_id,"rating":payload.rating,
-            "reward":reward,"queued_for_training":True,"mistake_id":mistake_id,
+            "reward":reward,"queued_for_training":reward != 0,"mistake_id":mistake_id,
             "correction_requires_review":bool(mistake_id)}
 
 
@@ -1039,7 +1039,7 @@ def list_feedback(pending_only: bool = False, limit: int = 200):
     limit=max(1,min(limit,500))
     query="""SELECT f.*,a.task_id,a.prompt,a.output
              FROM human_feedback f JOIN task_attempts a ON a.id=f.attempt_id"""
-    if pending_only: query+=" WHERE f.consumed_at IS NULL"
+    if pending_only: query+=" WHERE f.consumed_at IS NULL AND f.reward<>0"
     query+=" ORDER BY f.created_at DESC LIMIT ?"
     with connect() as c: return [dict(row) for row in c.execute(query,(limit,))]
 
