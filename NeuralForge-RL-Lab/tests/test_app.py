@@ -807,3 +807,16 @@ def test_custom_evaluator_without_expected_match_works_in_benchmark(tmp_path, mo
     detail = response.json()["details"][0]
     assert detail["score"] == 82
     assert detail["expected_match"] is None
+
+
+
+def test_adapter_configuration_cannot_change_during_active_training(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    before = client.get("/api/adapter/config").json()
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("active-config-run", "running", 10, main.now()))
+    response = client.put("/api/adapter/config", json={"learning_rate": 0.0005})
+    assert response.status_code == 409
+    after = client.get("/api/adapter/config").json()
+    assert after["learning_rate"] == before["learning_rate"]
