@@ -16,7 +16,7 @@ flowchart TD
   B --> C[Prompt builder]
   D[Verified mistake corrections] --> C
   C --> E[Model adapter]
-  E --> F[Generated Luau]
+  E --> F[Generated output]
   F --> G[Domain evaluator]
   G --> H[Reward and attempt record]
   G --> I[Append-only mistake record]
@@ -35,7 +35,7 @@ flowchart TD
 - Tasks can be disabled without deletion.
 - Mistake attempts are immutable. Review decisions are separate append-only events.
 - A correction is included in future prompts only when its latest review event is `verified`.
-- Training runs record status, episode count, average reward, success heuristic rate, update count and average loss.
+- Training runs record status, episode count, average reward, score pass rate, update count and average loss.
 - Every task attempt is stored with its evaluator score and reward. Recent task scores adjust curriculum selection weights.
 - A checkpoint is labelled `model_weights` only when the adapter actually saves weights. Otherwise it is marked `metadata_only`.
 
