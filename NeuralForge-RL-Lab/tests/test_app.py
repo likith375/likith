@@ -1342,3 +1342,19 @@ def test_zero_gradient_feedback_is_not_marked_consumed(tmp_path, monkeypatch):
     pending = client.get("/api/feedback?pending_only=true").json()
     assert any(row["id"] == feedback["id"] for row in pending)
     assert run["feedback_updates"] == 0
+
+
+
+def test_deleting_dataset_source_disables_generated_task_but_keeps_history(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    source = next(row for row in client.get("/api/datasets").json() if row["split"] == "train")
+    generated = client.post("/api/tasks/generate-from-dataset?limit=100").json()
+    assert generated["created"] >= 1
+    task = next(row for row in client.get("/api/tasks").json()
+                if row.get("source_dataset_id") == source["id"])
+    response = client.delete(f"/api/datasets/{source['id']}")
+    assert response.status_code == 200
+    assert response.json()["disabled_generated_tasks"] == 1
+    stored_task = next(row for row in client.get("/api/tasks").json() if row["id"] == task["id"])
+    assert stored_task["enabled"] == 0
+    assert stored_task["expected"] == source["content"]
