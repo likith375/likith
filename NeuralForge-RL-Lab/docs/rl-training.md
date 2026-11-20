@@ -29,7 +29,8 @@ This is a minimal REINFORCE-style policy-gradient baseline. It is not PPO, RLHF 
 ## How imported examples are used
 
 - Dataset examples with split `train` are used for supervised updates if the adapter implements `supervised_step`.
-- Relevant examples are also retrieved into task prompts as few-shot context.
+- Relevant examples are retrieved into task prompts using subject matching and lightweight keyword-overlap ranking rather than simply taking the newest records.
+- Verified mistake corrections are filtered by the task's subject so unrelated corrections are not injected into the prompt.
 - Validation and test rows are not used for gradient updates or prompt examples.
 - Human-reviewed corrections are added to future prompts only when their latest review event is `verified`.
 - Task attempts are stored immutably with scores, rewards and evaluator metadata; task performance history drives the adaptive curriculum.
