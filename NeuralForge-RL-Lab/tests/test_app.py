@@ -921,3 +921,19 @@ def test_dataset_metadata_round_trips_through_normalizer():
     }, 0)
     assert row["metadata"]["source_file"] == "lesson.xlsx"
     assert row["metadata"]["sheet"] == "Physics"
+
+
+
+def test_direct_upload_records_sha256_provenance(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    client = setup_client(tmp_path, monkeypatch)
+    raw = b"def square(x):\n    return x * x\n"
+    response = client.post("/api/datasets/import", files={
+        "file": ("square.py", raw, "text/x-python")
+    })
+    assert response.status_code == 200
+    with main.connect() as db:
+        row = db.execute("SELECT metadata_json FROM datasets WHERE name='Reference material: square.py'").fetchone()
+    metadata = json.loads(row["metadata_json"])
+    assert metadata["sha256"] == hashlib.sha256(raw).hexdigest()
