@@ -406,23 +406,53 @@ def list_datasets(split: str | None=None, category: str | None=None):
     query+=" ORDER BY created_at DESC LIMIT 2000"
     with connect() as c: return [dict(x) for x in c.execute(query,args)]
 
+# Safe text-based ingestion for common data, source-code, notebook and document formats.
+DATASET_EXTENSIONS = {
+    ".jsonl", ".json", ".csv", ".txt", ".md", ".rst", ".yaml", ".yml", ".toml", ".xml",
+    ".html", ".htm", ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".ipynb", ".java",
+    ".c", ".h", ".cpp", ".hpp", ".cs", ".go", ".rs", ".php", ".rb", ".swift", ".kt",
+    ".dart", ".scala", ".sql", ".sh", ".bash", ".zsh", ".bat", ".cmd", ".ps1", ".r",
+    ".m", ".pl", ".lua", ".luau", ".vue", ".svelte", ".graphql", ".proto"
+}
+TEXT_EXTENSIONS = DATASET_EXTENSIONS - {".jsonl", ".json", ".csv", ".ipynb"}
+
+def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
+    suffix = Path(filename).suffix.lower()
+    decoded = raw.decode("utf-8-sig")
+    if suffix == ".jsonl":
+        return [json.loads(line) for line in decoded.splitlines() if line.strip()]
+    if suffix == ".json":
+        obj = json.loads(decoded)
+        return obj if isinstance(obj, list) else obj.get("examples", [obj] if isinstance(obj, dict) else [])
+    if suffix == ".csv":
+        return list(csv.DictReader(io.StringIO(decoded)))
+    if suffix == ".ipynb":
+        notebook = json.loads(decoded)
+        cells = []
+        for index, cell in enumerate(notebook.get("cells", []), 1):
+            source = cell.get("source", "")
+            if isinstance(source, list):
+                source = "".join(source)
+            if str(source).strip():
+                cells.append({"prompt": f"{Path(filename).name} cell {index} ({cell.get('cell_type','code')})",
+                              "content": str(source), "category": "jupyter-" + str(cell.get("cell_type","code"))})
+        return cells
+    if suffix in TEXT_EXTENSIONS:
+        return [{"prompt": f"Reference material: {Path(filename).name}",
+                 "content": decoded, "category": suffix.lstrip(".") or "general"}]
+    raise ValueError("Unsupported or binary file type.")
+
 @app.post("/api/datasets/import")
 async def import_data(file: UploadFile=File(...), category: str="general"):
-    if not file.filename or not file.filename.lower().endswith((".jsonl",".json",".csv")):
-        raise HTTPException(400,"Upload a .jsonl, .json or .csv file.")
+    if not file.filename or Path(file.filename).suffix.lower() not in DATASET_EXTENSIONS:
+        raise HTTPException(400,"Unsupported file type. Upload supported datasets, source code, notebooks, text, or documentation files.")
     raw=await file.read()
     if len(raw)>15*1024*1024: raise HTTPException(413,"Dataset file exceeds the 15 MB import limit.")
     try:
-        decoded=raw.decode("utf-8-sig")
-        if file.filename.lower().endswith(".jsonl"):
-            rows=[json.loads(line) for line in decoded.splitlines() if line.strip()]
-        elif file.filename.lower().endswith(".json"):
-            data=json.loads(decoded); rows=data if isinstance(data,list) else data.get("examples",[])
-        else:
-            rows=list(csv.DictReader(io.StringIO(decoded)))
-    except (UnicodeDecodeError,json.JSONDecodeError) as exc:
-        raise HTTPException(400,f"Could not parse dataset: {exc}")
-    if not isinstance(rows,list): raise HTTPException(400,"Dataset must contain a list of examples.")
+        rows=parse_uploaded_material(file.filename, raw)
+    except (UnicodeDecodeError,json.JSONDecodeError,ValueError) as exc:
+        raise HTTPException(400,f"Could not parse uploaded material: {exc}")
+    if not isinstance(rows,list): raise HTTPException(400,"Uploaded material did not produce examples.")
     count=0
     with connect() as c:
         for i,row in enumerate(rows):
@@ -441,7 +471,7 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
 @app.post("/api/datasets/import-folder")
 def import_inbox_folder():
     """Import supported text/data files dropped into data/inbox; never execute them."""
-    allowed={".jsonl",".json",".csv",".lua",".luau",".txt",".md"}
+    allowed=DATASET_EXTENSIONS
     added=0; skipped=[]; scanned=0
     source_files=[*DATA_INBOX.rglob("*"),*DATA_EXAMPLES_DIR.rglob("*")]
     for path in sorted(source_files):
@@ -460,14 +490,7 @@ def import_inbox_folder():
                 continue
         try:
             decoded=raw.decode("utf-8-sig")
-            if path.suffix.lower()==".jsonl":
-                rows=[json.loads(line) for line in decoded.splitlines() if line.strip()]
-            elif path.suffix.lower()==".json":
-                obj=json.loads(decoded); rows=obj if isinstance(obj,list) else obj.get("examples",[])
-            elif path.suffix.lower()==".csv":
-                rows=list(csv.DictReader(io.StringIO(decoded)))
-            else:
-                rows=[{"prompt":f"Reference file: {path.name}","content":decoded,"category":path.suffix.lower().lstrip(".")}]
+            rows=parse_uploaded_material(path.name, raw)
             if not isinstance(rows,list): raise ValueError("Expected a list of examples.")
         except Exception as exc:
             skipped.append({"file":path.name,"reason":f"parse error: {exc}"})
