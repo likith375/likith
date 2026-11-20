@@ -46,7 +46,7 @@ Python 3.10+ is required.
 cd NeuralForge-RL-Lab
 python -m venv .venv
 # Windows:
-.venv\\Scripts\\activate
+.venv\Scripts\activate.bat
 # macOS/Linux:
 source .venv/bin/activate
 pip install -r requirements.txt
