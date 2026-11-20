@@ -16,14 +16,19 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a m
 - Adapter dry-run testing, one-shot model generation, system diagnostics, and dataset/task deletion APIs.
 - Background training runs, live run polling, reward and loss metrics.
 - Optional training time budget up to 24 hours, episode cap, and graceful stop control.
-- Combined supervised fine-tuning on imported train-split examples plus reward-based updates when the adapter supports it.
-- A watched `data/inbox/` folder for dropping supported source files, notebooks, datasets and documentation from any subject.
+- Combined supervised fine-tuning on imported train-split examples and evidence-verified mistake corrections, plus reward-based updates when the adapter supports it.
+- Human-in-the-loop learning: rate saved attempts from 1–5; pending ratings become reward samples in the next run and are consumed only after a post-training checkpoint is saved.
+- Human-supplied corrections are quarantined as unverified candidates until a reviewer verifies their correction and evidence.
+- Immutable task-attempt and human-feedback history is preserved when a task is deleted.
+- An inbox-folder importer for supported source files, notebooks, datasets, PDFs, DOCX, XLSX and PPTX material from any subject.
 - Dedicated `data/mistakes/mistakes.jsonl` append-only audit log.
 - Held-out validation and test benchmarks with stored per-example results.
 - A model-adapter contract for your own scratch-built Python AI.
 - An optional Hugging Face causal-LM adapter with LoRA-first parameter-efficient tuning, supervised updates, and REINFORCE-style policy-gradient updates.
 - Immutable per-task attempt history and an adaptive curriculum that prioritizes less-mastered tasks.
-- Automatic restorable model backup before each training run, plus manual checkpoint save and restore.
+- Automatic restorable pre-training backup and post-training model checkpoint for every run that reports real optimizer updates, plus manual checkpoint save and restore.
+- Dataset quality statistics, training-readiness preview, and adapter diagnostics (device, model type, parameter counts and trainable-weight percentage).
+- Serialized model operations and protection against changing adapter settings during an active run.
 - API documentation at `/docs`.
 - Automated tests and GitHub Actions workflow.
 - GitHub Codespaces development-container setup.
@@ -99,7 +104,7 @@ JSONL is recommended. Each line is one JSON object:
 {"prompt":"Create a part","category":"instances","content":"local part = Instance.new(\"Part\")","split":"train"}
 ```
 
-Accepted content fields: `content`, `code`, `completion`, `output`, `response`, `answer`, `target`, `assistant`, or `text`. Prompt aliases include `prompt`, `instruction`, `question`, `input`, `user`, `title`, and `name`. OpenAI `messages` and ShareGPT `conversations` rows are also normalized. Plain-text source and documentation files are imported as reference examples; Jupyter notebooks are split into cells. PDF files import selectable text page by page (scanned-image OCR is not included); DOCX imports paragraphs and tables.
+Accepted content fields: `content`, `code`, `completion`, `output`, `response`, `answer`, `target`, `assistant`, or `text`. Prompt aliases include `prompt`, `instruction`, `question`, `input`, `user`, `title`, and `name`. OpenAI `messages` and ShareGPT `conversations` rows are also normalized. Plain-text source and documentation files are imported as reference examples; Jupyter notebooks are split into cells. PDF files import selectable text page by page (scanned-image OCR is not included); DOCX imports paragraphs and tables; XLSX imports rows (including question/answer columns); PPTX imports slide text and tables.
 
 Accepted prompt fields: `prompt`, `instruction`, or `title`.
 
@@ -114,9 +119,10 @@ The optional Luau starter corpus remains available as one subject-specific examp
 3. The connected adapter generates a candidate completion.
 4. The evaluator computes transparent static checks and a reward.
 5. Weak attempts are preserved in mistake memory for human review.
-6. The adapter receives prompt, completion, and reward samples. Imported train-split examples also go to the optional supervised-training hook.
-7. The adapter performs a real update; run metrics record updates and loss.
-8. The model can be checkpointed and restored.
+6. A human can rate the saved attempt; ratings become durable reward samples. Corrections remain unverified until evidence review.
+7. The adapter receives prompt, completion, and reward samples. Imported train-split examples and evidence-verified corrections also go to the optional supervised-training hook.
+8. The adapter performs a real update; run metrics record updates and loss.
+9. A post-training checkpoint is saved before rated feedback is marked consumed. The model can be restored from its pre-run or post-run checkpoint.
 
 Read `docs/rl-training.md` before interpreting the metrics.
 
