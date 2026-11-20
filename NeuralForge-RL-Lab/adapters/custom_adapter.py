@@ -1,48 +1,54 @@
-"""Template for connecting a scratch-built Python AI.
+"""Domain-neutral adapter template for a user's own Python AI.
 
-Copy this file and replace ScratchModelStub with your actual model code.
-Configure the lab with adapter_spec = adapters.custom_adapter:load_adapter.
+Configure NeuralForge with:
+    adapters.custom_adapter:load_adapter
 
-Important: train_step must perform a real optimizer/weight update. Returning a
-success value without changing model parameters is not learning.
+Replace the model loading and learning hooks with your model's real APIs.
+Never return updates=1 unless optimizer.step() actually changed trainable weights.
+The lab rejects a reward train_step that does not explicitly report a real update.
 """
 from pathlib import Path
 from typing import Any
 
+
 class ScratchModelAdapter:
-    name = "My scratch Luau AI"
+    name = "My Scratch AI"
 
     def __init__(self, config: dict[str, Any] | None = None):
         config = config or {}
-        # TODO: import and initialize your model/tokenizer here.
-        # Example: self.model = MyModel.load(config["model_path"])
         self.model = None
         self.checkpoint_dir = Path("checkpoints")
-        self.checkpoint_dir.mkdir(exist_ok=True)
+        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        # Load your model/tokenizer/optimizer here, for example:
+        # self.model = MyModel.load(config["model_path"])
 
     def generate(self, prompt: str, context: dict[str, Any] | None = None) -> str:
         if self.model is None:
-            raise RuntimeError("Replace ScratchModelStub with your actual model.")
-        # TODO: return the generated Luau text from your model.
-        return self.model.generate_text(prompt)
+            raise RuntimeError("Load your actual model in ScratchModelAdapter.__init__ first.")
+        return self.model.generate_text(prompt, context=context or {})
 
     def supervised_step(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
-        """Optional: supervised update using imported reference completions."""
+        """Optional teacher-forced update using prompt/completion examples."""
         if self.model is None:
-            raise RuntimeError("Connect your model before training.")
-        # TODO: calculate next-token / teacher-forced loss on prompt + completion,
-        # mask prompt tokens from the loss, and call optimizer.step().
+            raise RuntimeError("No model is loaded.")
+        # Your implementation must calculate a supervised loss and call optimizer.step().
         result = self.model.supervised_learn(batch)
-        return {"updates": 1, "loss": float(result["loss"])}
+        return {"updates": int(result["updates"]), "loss": float(result["loss"])}
 
     def train_step(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
+        """Required reward update. Each item has prompt, completion, reward and task_id."""
         if self.model is None:
-            raise RuntimeError("Connect your model before training.")
-        # Each item contains prompt, completion, reward (-1 to +1), and task_id.
-        # TODO: calculate policy-gradient / preference loss and call optimizer.step().
-        # This must update real trainable parameters.
+            raise RuntimeError("No model is loaded.")
+        # Implement a policy-gradient, preference, or other documented reward update.
+        # This must really update parameters; do not return a fake success value.
         result = self.model.learn_from_rewards(batch)
-        return {"updates": 1, "loss": float(result["loss"])}
+        return {"updates": int(result["updates"]), "loss": float(result["loss"])}
+
+    def evaluate(self, prompt: str, output: str, expected: str, domain: str) -> dict[str, Any]:
+        """Optional: implement a domain-specific evaluator with evidence-backed scoring."""
+        # Return score in [0,100], reward in [-1,1], and optional checks/warning.
+        # Without this method NeuralForge uses a clearly-labelled generic heuristic.
+        raise NotImplementedError("Add a real evaluator or remove this optional method.")
 
     def save_checkpoint(self, destination: str) -> dict[str, Any]:
         if self.model is None:
@@ -55,6 +61,7 @@ class ScratchModelAdapter:
             raise RuntimeError("No model is loaded.")
         self.model.load(source)
         return {"loaded_from": source}
+
 
 def load_adapter(config: dict[str, Any] | None = None):
     return ScratchModelAdapter(config or {})
