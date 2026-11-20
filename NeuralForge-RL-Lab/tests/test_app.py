@@ -1660,3 +1660,32 @@ def test_database_startup_marks_orphaned_runs_interrupted(tmp_path, monkeypatch)
     assert running["status"] == "interrupted"
     assert queued["status"] == "interrupted"
     assert "Server restarted" in running["error"]
+
+
+
+def test_task_generation_continues_past_already_generated_latest_examples(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("DELETE FROM tasks")
+        db.execute("DELETE FROM datasets")
+        for index in range(12):
+            dataset_id = f"bulk-{index}"
+            db.execute("""INSERT INTO datasets
+              (id,name,category,split,content,created_at)
+              VALUES(?,?,?,?,?,?)""",
+              (dataset_id, f"Example {index}", "physics", "train",
+               f"Unique reference content {index}",
+               f"2026-11-20T00:00:{index:02d}+00:00"))
+            if index >= 7:
+                db.execute("""INSERT INTO tasks
+                  (id,title,prompt,expected,difficulty,category,source_dataset_id,created_at)
+                  VALUES(?,?,?,?,?,?,?,?)""",
+                  (f"task-{index}", f"Practice: Example {index}", "Prompt",
+                   f"Unique reference content {index}", "easy", "physics",
+                   dataset_id, main.now()))
+    response = client.post("/api/tasks/generate-from-dataset?limit=3")
+    assert response.status_code == 200
+    assert response.json()["created"] == 3
+    generated = client.get("/api/tasks").json()
+    titles = {row["title"] for row in generated}
+    assert {"Practice: Example 6", "Practice: Example 5", "Practice: Example 4"} <= titles
