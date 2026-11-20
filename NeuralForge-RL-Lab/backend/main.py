@@ -1305,7 +1305,7 @@ def generate_tasks_from_dataset(limit: int = 30):
             existing.add(title); represented_examples.add(content_key); created+=1
             if created>=limit:
                 break
-    return {"created":created,"available_examples":available,"message":"Practice tasks generated from train-split examples not already represented by a generated task."}
+    return {"created":created,"available_examples":available,"message":"Practice tasks generated from train-split examples not already represented by an existing task."}
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: str):
