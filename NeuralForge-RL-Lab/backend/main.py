@@ -1786,9 +1786,12 @@ def _run_benchmark_locked(split: str="validation", limit: int=100):
             evaluation=evaluate_with_adapter(adapter, prompt, output, row["content"], row["category"])
             total+=evaluation["score"]; passed+=int(evaluation["score"]>=75)
             details.append({"prompt":row["name"],"score":evaluation["score"],"expected_match":evaluation["expected_match"],
-                            "output_preview":output[:1000],"checks":evaluation["checks"]})
+                            "output_preview":output[:1000],"checks":evaluation["checks"],
+                            "evaluator":evaluation.get("evaluator","unknown"),
+                            "warning":evaluation.get("warning","")})
         except Exception as exc:
-            details.append({"prompt":row["name"],"error":f"{type(exc).__name__}: {exc}","score":0})
+            details.append({"prompt":row["name"],"error":f"{type(exc).__name__}: {exc}","score":0,
+                            "evaluator":"evaluation_error","warning":"This example could not be evaluated."})
     count=len(details); avg=total/count; pass_rate=passed/count
     bid=str(uuid.uuid4()); model_name=getattr(adapter,"name",type(adapter).__name__)
     with connect() as c:
@@ -1796,7 +1799,7 @@ def _run_benchmark_locked(split: str="validation", limit: int=100):
                   (bid,split,count,avg,pass_rate,json.dumps(details,ensure_ascii=False),now(),model_name))
     return {"id":bid,"split":split,"examples":count,"average_score":round(avg,1),
             "pass_rate":round(pass_rate*100,1),"model":model_name,"details":details,
-            "warning":"Static heuristic only; this is not a Roblox runtime test."}
+            "warning":"Inspect each example's evaluator and warning. Static heuristics do not prove factual, mathematical, or runtime correctness."}
 
 @app.get("/api/benchmarks")
 def list_benchmarks():
