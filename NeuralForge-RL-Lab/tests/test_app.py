@@ -458,3 +458,11 @@ def test_lora_settings_reject_invalid_rank(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
     response = client.put("/api/adapter/config", json={"lora_r": 0})
     assert response.status_code == 422
+
+
+def test_static_evaluator_never_claims_success_without_reference():
+    result = main.static_evaluate("A detailed explanation with balanced (text).")
+    assert result["score"] == 50
+    assert result["reward"] == 0
+    assert result["checks"]["reference_match"] is None
+    assert "neutral" in result["warning"]
