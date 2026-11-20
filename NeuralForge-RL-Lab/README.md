@@ -11,7 +11,7 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a m
 - Train / validation / test split support.
 - Task studio with difficulty, category, expected behavior, and enable/disable controls.
 - Append-only mistake records with a separate review-event history. Only verified corrections are added to future task prompts.
-- Domain-neutral static response heuristics with explicit warnings, plus an optional trusted adapter evaluation hook for subject-specific verification.
+- Domain-neutral static response heuristics with explicit warnings, a safe Python AST syntax check, and an optional trusted adapter evaluation hook for subject-specific verification.
 - Adapter dry-run testing, one-shot model generation, system diagnostics, and dataset/task deletion APIs.
 - Background training runs, live run polling, reward and loss metrics.
 - Optional training time budget up to 24 hours, episode cap, and graceful stop control.
@@ -120,7 +120,7 @@ Read `docs/rl-training.md` before interpreting the metrics.
 
 ## Important limitations
 
-- **Evaluation depends on the configured evaluator:** the default evaluator checks only basic text structure and reference matching. It cannot prove code works or factual claims are true. Add a domain-specific `evaluate(prompt, output, expected, domain)` method to a trusted adapter for stronger checks. Never treat a generic heuristic score as a runtime pass.
+- **Evaluation depends on the configured evaluator:** the default evaluator checks only basic text structure and reference matching. It cannot prove code works or factual claims are true. Python-domain tasks also receive a safe AST syntax check (without execution). Add a domain-specific `evaluate(prompt, output, expected, domain)` method to a trusted adapter for stronger checks. Never treat a generic heuristic score as a runtime pass.
 - **Reward quality matters:** the built-in static reward is a baseline. Better results require a carefully designed evaluator and reviewed task/reference data.
 - **REINFORCE is experimental:** it may be unstable, especially with small datasets, small models, or noisy rewards. Keep backups and compare held-out validation/test results.
 - **Local resources:** training speed and memory use depend on your model size, hardware, and batch settings.
