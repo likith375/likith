@@ -675,3 +675,40 @@ def test_verified_mistake_corrections_are_reused_for_supervised_training(tmp_pat
     main.execute_training("verified-correction-run", {"episodes": 1, "batch_size": 32})
     assert client.get("/api/runs/verified-correction-run").json()["status"] == "completed"
     assert any(row["content"] == correction for row in adapter.supervised)
+
+
+
+def test_adapter_status_includes_non_mutating_diagnostics(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class DiagnosticAdapter:
+        name = "diagnostic-adapter"
+        def generate(self, prompt, context=None): return "sample"
+        def train_step(self, batch): return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination): return {}
+        def load_checkpoint(self, source): return {}
+        def diagnostics(self):
+            return {"device": "cpu", "trainable_parameters": 1234, "trainable_percent": 2.5}
+    monkeypatch.setattr(main, "get_adapter", lambda: DiagnosticAdapter())
+    status = client.get("/api/adapter/status").json()
+    assert status["connected"] is True
+    assert status["diagnostics"]["device"] == "cpu"
+    assert status["diagnostics"]["trainable_parameters"] == 1234
+
+
+def test_adapter_test_reports_generation_without_weight_updates(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class TestAdapter:
+        name = "test-only-adapter"
+        def __init__(self): self.updates = 0
+        def generate(self, prompt, context=None): return "A generated sample."
+        def train_step(self, batch):
+            self.updates += 1
+            return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination): return {}
+        def load_checkpoint(self, source): return {}
+    adapter = TestAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    result = client.post("/api/adapter/test").json()
+    assert result["generation_ok"] is True
+    assert result["sample_output"] == "A generated sample."
+    assert adapter.updates == 0
