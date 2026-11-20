@@ -1,17 +1,37 @@
 # Training and reward design
 
-## Current learning algorithm
+## Combined learning loop
 
-The optional Hugging Face adapter is a minimal REINFORCE-style policy-gradient baseline:
+The training controller combines two kinds of learning when the selected adapter supports both:
 
-1. Sample a completion from the current policy.
-2. Compute a scalar reward from the configured evaluator.
-3. Subtract an exponential moving-average reward baseline.
-4. Compute the mean log probability of sampled completion tokens.
-5. Minimize `-advantage * log_probability`.
-6. Clip gradients and perform an AdamW optimizer step.
+1. **Supervised reference learning:** samples are drawn only from the dataset rows labelled `train`. The optional `supervised_step(batch)` hook teaches the model to predict the reference completion with teacher-forced next-token loss. Prompt tokens are masked out of the loss.
+2. **Reward-based policy learning:** the model generates a response to a task. The evaluator assigns a scalar reward. The adapter receives prompt, completion, reward and task ID, then performs a policy update through `train_step(batch)`.
 
-This is genuine parameter optimization when the adapter successfully runs its optimizer. It is not PPO, RLHF with a learned reward model, or a guarantee of useful code generation.
+The built-in Hugging Face adapter implements both supervised next-token updates and a minimal REINFORCE-style policy-gradient baseline. The supervised and policy updates both count toward the run's update metric.
+
+The custom adapter may implement `supervised_step(batch)` as an optional hook. If it is absent, the lab still performs reward-based updates through `train_step(batch)`.
+
+## REINFORCE baseline
+
+The optional Hugging Face adapter:
+
+1. Samples a completion from the current policy.
+2. Computes a scalar reward from the configured evaluator.
+3. Subtracts an exponential moving-average reward baseline.
+4. Computes the mean log probability of sampled completion tokens.
+5. Minimizes `-advantage * log_probability`.
+6. Clips gradients and performs an AdamW optimizer step.
+
+This is a minimal REINFORCE-style policy-gradient baseline. It is not PPO, RLHF with a learned reward model, or a guarantee of useful code generation.
+
+## How imported examples are used
+
+- Dataset examples with split `train` are used for supervised updates if the adapter implements `supervised_step`.
+- Relevant examples are also retrieved into task prompts as few-shot context.
+- Validation and test rows are not used for gradient updates or prompt examples.
+- Human-reviewed corrections are added to future prompts only when their latest review event is `verified`.
+
+Keep train, validation and test examples distinct. Do not train on test examples or feed test answers into prompts. Remove duplicated or near-duplicated examples across splits.
 
 ## Current reward function
 
@@ -31,16 +51,6 @@ For serious Roblox Luau training, build a separate isolated evaluator that can:
 - Return structured test results, not just a single score.
 
 Never run untrusted generated code in the main API process.
-
-## Data quality rules
-
-- Keep train, validation and test examples distinct.
-- Do not train on test examples or feed test answers into prompts.
-- Remove duplicated or near-duplicated examples across splits.
-- Keep API names and behavior grounded in the Roblox/Luau version you target.
-- Label the evidence for every correction.
-- Human-review corrections before marking them verified.
-- Prefer multiple tests and behavioral assertions over exact string matching.
 
 ## Training safety
 
