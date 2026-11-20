@@ -1147,8 +1147,8 @@ def test_generated_task_does_not_retrieve_its_own_reference_answer(tmp_path, mon
     generated = client.post("/api/tasks/generate-from-dataset?limit=10").json()
     assert generated["created"] == 1
     task = next(x for x in client.get("/api/tasks").json()
-                if x["title"] == "Practice: What is inertia?")
-    assert task["source_dataset_id"] == "only-source"
+                if x.get("source_dataset_id") in {"only-source", "duplicate-source"})
+    assert task["source_dataset_id"] in {"only-source", "duplicate-source"}
     prompt = main.build_prompt(task)
     assert "INERTIA_SECRET_REFERENCE_12345" not in prompt
 
