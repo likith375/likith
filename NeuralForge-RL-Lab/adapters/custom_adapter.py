@@ -44,12 +44,6 @@ class ScratchModelAdapter:
         result = self.model.learn_from_rewards(batch)
         return {"updates": int(result["updates"]), "loss": float(result["loss"])}
 
-    def evaluate(self, prompt: str, output: str, expected: str, domain: str) -> dict[str, Any]:
-        """Optional: implement a domain-specific evaluator with evidence-backed scoring."""
-        # Return score in [0,100], reward in [-1,1], and optional checks/warning.
-        # Without this method NeuralForge uses a clearly-labelled generic heuristic.
-        raise NotImplementedError("Add a real evaluator or remove this optional method.")
-
     def save_checkpoint(self, destination: str) -> dict[str, Any]:
         if self.model is None:
             raise RuntimeError("No model is loaded.")
