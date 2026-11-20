@@ -1398,6 +1398,11 @@ def restore_checkpoint(checkpoint_id:str):
 
 @app.post("/api/benchmarks/run")
 def run_benchmark(split: str="validation", limit: int=100):
+    with MODEL_EXECUTION_LOCK:
+        return _run_benchmark_locked(split,limit)
+
+
+def _run_benchmark_locked(split: str="validation", limit: int=100):
     if split not in ("validation","test"):
         raise HTTPException(400,"Benchmark split must be validation or test.")
     limit=max(1,min(limit,500))
