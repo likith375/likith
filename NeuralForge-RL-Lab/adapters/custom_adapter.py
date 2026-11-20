@@ -26,6 +26,15 @@ class ScratchModelAdapter:
         # TODO: return the generated Luau text from your model.
         return self.model.generate_text(prompt)
 
+    def supervised_step(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
+        """Optional: supervised update using imported reference completions."""
+        if self.model is None:
+            raise RuntimeError("Connect your model before training.")
+        # TODO: calculate next-token / teacher-forced loss on prompt + completion,
+        # mask prompt tokens from the loss, and call optimizer.step().
+        result = self.model.supervised_learn(batch)
+        return {"updates": 1, "loss": float(result["loss"])}
+
     def train_step(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
         if self.model is None:
             raise RuntimeError("Connect your model before training.")
