@@ -10,4 +10,6 @@ checkpoints/
 # User-provided local training material and generated mistake logs
 data/inbox/*
 !data/inbox/README.md
+data/examples/*
+!data/examples/README.md
 data/mistakes/*.jsonl
