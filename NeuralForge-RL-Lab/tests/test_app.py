@@ -466,3 +466,41 @@ def test_static_evaluator_never_claims_success_without_reference():
     assert result["reward"] == 0
     assert result["checks"]["reference_match"] is None
     assert "neutral" in result["warning"]
+
+
+def test_dataset_retrieval_prefers_matching_subject_and_prompt(tmp_path, monkeypatch):
+    setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("newest-writing","Recent writing","writing","train",
+                    "How to write a persuasive paragraph.",main.now()))
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("science-reference","Photosynthesis process","science","train",
+                    "Photosynthesis converts light energy into chemical energy in plants.",main.now()))
+    selected = main.dataset_examples("science", "Explain photosynthesis", limit=1)
+    assert selected[0]["prompt"] == "Photosynthesis process"
+
+
+def test_verified_corrections_are_filtered_by_task_domain(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    science_task = client.post("/api/tasks", json={
+        "title": "Science task", "prompt": "Explain photosynthesis", "category": "science"
+    }).json()["id"]
+    python_task = client.post("/api/tasks", json={
+        "title": "Python task", "prompt": "Write a Python function", "category": "python"
+    }).json()["id"]
+    for task_id, prompt, correction in [
+        (science_task, "Explain photosynthesis", "Plants convert light into stored chemical energy."),
+        (python_task, "Write a Python function", "def add(a, b): return a + b")
+    ]:
+        created = client.post("/api/mistakes", json={
+            "task_id": task_id, "prompt": prompt, "output": "wrong",
+            "correction": correction, "evidence": "Reviewed against reference"
+        }).json()
+        reviewed = client.patch(f"/api/mistakes/{created['id']}", json={
+            "verification": "verified", "correction": correction, "evidence": "Reviewed against reference"
+        })
+        assert reviewed.status_code == 200
+    science_memory = main.verified_examples(category="science")
+    assert len(science_memory) == 1
+    assert science_memory[0]["correction"].startswith("Plants convert")
