@@ -464,7 +464,7 @@ def _execute_training_locked(run_id, request):
         deadline=time.monotonic()+duration_hours*3600 if duration_hours>0 else None
         updates=0; losses=[]; feedback_updates=0; feedback_examples=0; feedback_ids_to_consume=[]
         # Human ratings are the strongest available reward signal. They are
-        # consumed only after a real adapter update succeeds.
+        # consumed only after the updated weights have been checkpointed.
         with connect() as c:
             pending_feedback=c.execute("""
               SELECT f.id,f.reward,a.prompt,a.output,a.task_id
@@ -540,10 +540,10 @@ def _execute_training_locked(run_id, request):
                            sum(losses)/len(losses) if losses else 0,completed_episodes,run_id))
         # Flush a partial batch if the user stopped the run or its time budget expired.
         if samples:
-            if train_rows and callable(getattr(adapter,"supervised_step",None)):
+            if supervised_rows and callable(getattr(adapter,"supervised_step",None)):
                 sup_batch=[]
-                for _ in range(min(batch_size,len(train_rows))):
-                    item=train_rows[supervised_cursor % len(train_rows)]; supervised_cursor+=1
+                for _ in range(min(batch_size,len(supervised_rows))):
+                    item=supervised_rows[supervised_cursor % len(supervised_rows)]; supervised_cursor+=1
                     sup_batch.append({"prompt":item["name"],"completion":item["content"],"category":item["category"]})
                 sup_result=adapter.supervised_step(sup_batch)
                 sup_updates, sup_loss = validate_update_result(sup_result, "supervised_step")
