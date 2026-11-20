@@ -4,3 +4,4 @@ torch>=2.2
 transformers>=4.45
 accelerate>=0.34
 safetensors>=0.4
+peft>=0.13,<1
