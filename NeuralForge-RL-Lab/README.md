@@ -148,3 +148,6 @@ The server does not execute uploaded Luau or arbitrary uploaded Python. Only loa
 ## License
 
 No license has been added yet. Choose a license before redistributing or publishing this project.
+
+
+For setup and common problems, see the [Troubleshooting guide](docs/troubleshooting.md).
