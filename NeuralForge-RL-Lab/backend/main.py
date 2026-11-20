@@ -656,7 +656,7 @@ def training_preview():
         task_count=c.execute("SELECT COUNT(*) FROM tasks WHERE enabled=1").fetchone()[0]
         split_counts={row["split"]:row["count"] for row in c.execute(
             "SELECT split,COUNT(*) AS count FROM datasets GROUP BY split")}
-        pending=c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_at IS NULL").fetchone()[0]
+        pending=c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_at IS NULL AND reward<>0").fetchone()[0]
         verified=c.execute("""SELECT COUNT(*) FROM mistakes m WHERE COALESCE(
             (SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
              ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'
