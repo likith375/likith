@@ -95,6 +95,23 @@ class HuggingFaceREINFORCEAdapter:
         )
         self.max_length = max(128, int(configured_length))
 
+    def diagnostics(self) -> dict[str, Any]:
+        """Expose model and trainability details without running a training step."""
+        total=sum(parameter.numel() for parameter in self.model.parameters())
+        trainable=sum(parameter.numel() for parameter in self.model.parameters() if parameter.requires_grad)
+        return {
+            "device":str(self.device),
+            "model_type":str(getattr(self.model.config,"model_type","unknown")),
+            "total_parameters":total,
+            "trainable_parameters":trainable,
+            "trainable_percent":round((100.0*trainable/total),4) if total else 0.0,
+            "use_lora":self.use_lora,
+            "lora_rank":self.lora_r if self.use_lora else None,
+            "lora_target_modules":self.lora_target_modules,
+            "learning_rate":self.learning_rate,
+            "max_sequence_length":self.max_length,
+        }
+
     def _response_tensors(self, prompt: str, completion: str):
         torch = self.torch
         prompt_ids = self.tokenizer(prompt, add_special_tokens=True)["input_ids"]
