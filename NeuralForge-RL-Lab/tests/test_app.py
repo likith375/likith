@@ -1052,3 +1052,17 @@ def test_dashboard_and_openapi_are_served(tmp_path, monkeypatch):
     assert "/api/attempts/{attempt_id}/feedback" in paths
     assert "/api/training/preview" in paths
     assert "/api/runs/{run_id}/report" in paths
+
+
+
+def test_neutral_rating_is_recorded_but_not_queued_for_training(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    attempt_id = main.record_attempt(client.get("/api/tasks").json()[0]["id"], "", "p", "o", {
+        "score": 50, "reward": 0, "evaluator": "test", "checks": {}
+    })
+    result = client.post(f"/api/attempts/{attempt_id}/feedback", json={"rating": 3}).json()
+    assert result["reward"] == 0
+    assert result["queued_for_training"] is False
+    assert len(client.get("/api/feedback").json()) == 1
+    assert client.get("/api/feedback?pending_only=true").json() == []
+    assert client.get("/api/training/preview").json()["pending_human_feedback"] == 0
