@@ -690,7 +690,7 @@ def chunk_reference_text(text: str, max_chars: int = 3200) -> list[str]:
             while remaining:
                 if len(remaining)<=max_chars:
                     chunks.append(remaining.strip()); break
-                newline_boundary=remaining.rfind("\\n",0,max_chars)
+                newline_boundary=remaining.rfind("\n",0,max_chars)
                 space_boundary=remaining.rfind(" ",0,max_chars)
                 boundary=newline_boundary if newline_boundary>=max_chars//2 else space_boundary
                 if boundary<max_chars//2: boundary=max_chars
