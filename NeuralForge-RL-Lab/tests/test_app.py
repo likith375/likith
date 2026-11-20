@@ -78,3 +78,11 @@ def test_mistake_audit_file_is_jsonl(tmp_path, monkeypatch):
     lines = main.MISTAKE_LOG.read_text(encoding="utf-8").splitlines()
     import json
     assert json.loads(lines[0])["event"] == "mistake_created"
+
+def test_generate_tasks_from_train_split(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    response = client.post("/api/tasks/generate-from-dataset?limit=10")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["created"] >= 1
+    assert any(t["title"].startswith("Practice:") for t in client.get("/api/tasks").json())
