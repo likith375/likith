@@ -315,7 +315,7 @@ def test_instruction_dataset_schema_imports_question_and_answer_fields(tmp_path,
 
 def test_long_document_chunks_stay_in_training_split(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
-    text = ("Paragraph about biology and cells. " * 100 + "\\n\\n" +
+    text = ("Paragraph about biology and cells. " * 100 + chr(10) + chr(10) +
             "Paragraph about genetics and DNA. " * 100)
     response = client.post("/api/datasets/import", files={
         "file": ("biology.md", text.encode(), "text/markdown")
