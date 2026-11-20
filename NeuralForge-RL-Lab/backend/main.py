@@ -21,6 +21,8 @@ DB = ROOT / "neuralforge.sqlite3"
 DATA_DIR.mkdir(exist_ok=True)
 DATA_INBOX = DATA_DIR / "inbox"
 DATA_INBOX.mkdir(exist_ok=True)
+DATA_EXAMPLES_DIR = DATA_DIR / "examples"
+DATA_EXAMPLES_DIR.mkdir(exist_ok=True)
 MISTAKES_DIR = DATA_DIR / "mistakes"
 MISTAKES_DIR.mkdir(exist_ok=True)
 MISTAKE_LOG = MISTAKES_DIR / "mistakes.jsonl"
@@ -373,7 +375,8 @@ def import_inbox_folder():
     """Import supported text/data files dropped into data/inbox; never execute them."""
     allowed={".jsonl",".json",".csv",".lua",".luau",".txt",".md"}
     added=0; skipped=[]; scanned=0
-    for path in sorted(DATA_INBOX.iterdir()):
+    source_files=[*DATA_INBOX.rglob("*"),*DATA_EXAMPLES_DIR.rglob("*")]
+    for path in sorted(source_files):
         if path.is_symlink() or not path.is_file() or path.name.lower()=="readme.md" or path.suffix.lower() not in allowed:
             continue
         scanned+=1
@@ -382,7 +385,7 @@ def import_inbox_folder():
             skipped.append({"file":path.name,"reason":"over 15 MB"})
             continue
         digest=hashlib.sha256(raw).hexdigest()
-        metadata=json.dumps({"source_file":path.name,"sha256":digest},ensure_ascii=False)
+        source_name=path.relative_to(DATA_DIR).as_posix()
         with connect() as c:
             if c.execute("SELECT 1 FROM datasets WHERE metadata_json LIKE ? LIMIT 1",("%"+digest+"%",)).fetchone():
                 skipped.append({"file":path.name,"reason":"already imported"})
@@ -409,11 +412,11 @@ def import_inbox_folder():
                 if not code.strip(): continue
                 split=str(row.get("split") or ("validation" if i%10==8 else "test" if i%10==9 else "train")).lower()
                 if split not in ("train","validation","test"): split="train"
-                row_meta={"source_file":path.name,"sha256":digest,"row_metadata":{k:v for k,v in row.items() if k not in ("content","code","completion","output","text","prompt","instruction","title")}}
+                row_meta={"source_file":source_name,"sha256":digest,"row_metadata":{k:v for k,v in row.items() if k not in ("content","code","completion","output","text","prompt","instruction","title")}}
                 c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",
                           (str(uuid.uuid4()),prompt[:300],str(row.get("category") or path.suffix.lower().lstrip("."))[:80],split,code,json.dumps(row_meta,ensure_ascii=False),now()))
                 added+=1
-    return {"scanned_files":scanned,"added":added,"skipped":skipped,"inbox":str(DATA_INBOX)}
+    return {"scanned_files":scanned,"added":added,"skipped":skipped,"folders":[str(DATA_INBOX),str(DATA_EXAMPLES_DIR)]}
 
 @app.get("/api/datasets/export")
 def export_datasets():
