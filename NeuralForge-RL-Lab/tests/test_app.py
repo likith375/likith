@@ -426,3 +426,33 @@ def test_adaptive_curriculum_weights_low_scoring_tasks_higher(tmp_path, monkeypa
                    ("curriculum-run", "queued", 1, main.now()))
     main.execute_training("curriculum-run", {"episodes": 1, "batch_size": 1})
     assert captured[first["id"]] > captured[second]
+
+
+def test_lora_adapter_settings_round_trip(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    response = client.put("/api/adapter/config", json={
+        "adapter_spec": "backend.hf_adapter:load_adapter",
+        "model_path": "/models/local",
+        "use_lora": True,
+        "lora_r": 16,
+        "lora_alpha": 32,
+        "lora_dropout": 0.1,
+        "lora_target_modules": "q_proj,v_proj",
+        "learning_rate": 0.0002,
+        "max_new_tokens": 256,
+        "batch_size": 4,
+        "reward_threshold": 0.5
+    })
+    assert response.status_code == 200
+    config = client.get("/api/adapter/config").json()
+    assert config["use_lora"] is True
+    assert config["lora_r"] == 16
+    assert config["lora_alpha"] == 32
+    assert config["lora_target_modules"] == "q_proj,v_proj"
+    assert config["learning_rate"] == 0.0002
+
+
+def test_lora_settings_reject_invalid_rank(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    response = client.put("/api/adapter/config", json={"lora_r": 0})
+    assert response.status_code == 422
