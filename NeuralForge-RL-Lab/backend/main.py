@@ -1262,8 +1262,15 @@ def try_task(task_id: str):
 @app.patch("/api/tasks/{task_id}")
 def toggle_task(task_id:str, enabled:bool):
     with connect() as c:
-        cur=c.execute("UPDATE tasks SET enabled=? WHERE id=?",(int(enabled),task_id))
-        if not cur.rowcount: raise HTTPException(404,"Task not found.")
+        task=c.execute("SELECT source_dataset_id FROM tasks WHERE id=?",(task_id,)).fetchone()
+        if not task:
+            raise HTTPException(404,"Task not found.")
+        source_id=task["source_dataset_id"]
+        if enabled and source_id:
+            source=c.execute("SELECT split FROM datasets WHERE id=?",(source_id,)).fetchone()
+            if not source or source["split"]!="train":
+                raise HTTPException(409,"This generated task cannot be enabled because its source example is missing or is not in the train split.")
+        c.execute("UPDATE tasks SET enabled=? WHERE id=?",(int(enabled),task_id))
     return {"id":task_id,"enabled":enabled}
 
 @app.post("/api/evaluate")
