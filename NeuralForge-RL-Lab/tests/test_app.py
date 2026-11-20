@@ -1282,3 +1282,30 @@ def test_bulk_split_repair_moves_all_exact_duplicates_together(tmp_path, monkeyp
     assert response.json()["disabled_generated_tasks"] == 1
     stats = client.get("/api/datasets/stats").json()
     assert stats["duplicate_split_conflicts"] == 0
+
+
+
+def test_neutral_automatic_reward_skips_reward_hook_and_completes_honestly(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class NeutralAdapter:
+        name = "neutral-reward-adapter"
+        def generate(self, prompt, context=None): return "A reasonable general answer."
+        def train_step(self, batch):
+            raise AssertionError("Neutral reward batches must not be sent to train_step")
+        def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"unchanged model snapshot")
+            return {}
+        def load_checkpoint(self, source): return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: NeutralAdapter())
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("neutral-run", "queued", 1, main.now()))
+    main.execute_training("neutral-run", {"episodes": 1, "batch_size": 1})
+    run = client.get("/api/runs/neutral-run").json()
+    assert run["status"] == "completed"
+    assert run["real_updates"] == 0
+    assert "No optimizer updates were reported" in run["notes"]
+    checkpoints = client.get("/api/checkpoints").json()
+    assert len(checkpoints) == 1
+    assert checkpoints[0]["label"] == "Automatic backup before training run"
