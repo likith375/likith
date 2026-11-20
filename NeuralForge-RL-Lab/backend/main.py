@@ -548,7 +548,9 @@ def _execute_training_locked(run_id, request):
                 task_recent_scores[task["id"]]=float(updated_score) if updated_score is not None else 50.0
                 total_reward += reward
                 successes += int(evaluation["score"] >= 75)
-                samples.append({"prompt":prompt,"completion":output,"reward":reward,"task_id":task["id"]})
+                # Neutral scores are recorded but carry no policy-gradient signal.
+                if float(reward) != 0.0:
+                    samples.append({"prompt":prompt,"completion":output,"reward":reward,"task_id":task["id"]})
                 if evaluation["score"] < float(cfg.get("reward_threshold","0.45"))*100:
                     save_mistake(task["id"],prompt,output,evaluation)
             except Exception as exc:
