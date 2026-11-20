@@ -832,6 +832,8 @@ def test_custom_evaluator_without_expected_match_works_in_benchmark(tmp_path, mo
     detail = response.json()["details"][0]
     assert detail["score"] == 82
     assert detail["expected_match"] is None
+    assert detail["evaluator"] == "physics-rubric"
+    assert detail["warning"] == "Rubric score; not a scientific proof."
     assert "A reference about motion." not in adapter.prompts[0]
 
 
