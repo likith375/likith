@@ -23,7 +23,7 @@ def test_health_and_seed_data(tmp_path, monkeypatch):
 def test_static_evaluator_is_explicitly_heuristic():
     result = main.static_evaluate("local coins = 10", "local coins = 10")
     assert result["score"] == 100
-    assert "prove code/factual correctness" in result["warning"]
+    assert "prove factual correctness" in result["warning"]
 
 def test_task_creation(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
