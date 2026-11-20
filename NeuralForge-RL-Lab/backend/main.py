@@ -220,23 +220,30 @@ def get_adapter(force_reload=False):
             raise RuntimeError(_adapter_error) from exc
 
 def static_evaluate(output: str, expected: str = "", domain: str = "general") -> dict[str, Any]:
-    """Domain-neutral baseline evaluator; it never pretends static checks are runtime tests."""
+    """Conservative text heuristic: without a reference, return neutral rather than fake success."""
     text = (output or "").strip()
     if not text:
         return {"score":0.0,"reward":-1.0,"checks":{"non_empty":False},
-                "expected_match":False,"warning":"Generic static heuristic only; no code or claim was executed."}
+                "expected_match":False,"evaluator":"generic_static_heuristic",
+                "warning":"Generic static heuristic only; no code or claim was executed."}
     checks = {
       "non_empty": True,
       "no_placeholder": not any(x in text.lower() for x in ("todo", "demo output", "insert code here", "lorem ipsum")),
       "balanced_delimiters": all(text.count(x) >= text.count(y) for x,y in (("(",")"),("{","}"),("[","]"))),
     }
-    expected_match = bool(expected.strip()) and expected.strip() in text
-    checks["reference_match"] = expected_match if expected.strip() else True
-    raw = sum(checks.values()) / len(checks)
-    score = round(raw * 100, 1)
-    return {"score":score,"reward":round((raw * 2)-1,4),"checks":checks,
-            "expected_match":expected_match,
-            "warning":"Generic static heuristic only. It does not execute code or prove code/factual correctness."}
+    has_reference=bool(expected.strip())
+    expected_match=has_reference and expected.strip() in text
+    checks["reference_match"]=expected_match if has_reference else None
+    structurally_ok=checks["no_placeholder"] and checks["balanced_delimiters"]
+    if has_reference:
+        score=100.0 if expected_match and structurally_ok else 25.0
+    else:
+        # No answer key means correctness is unknown. 50 is neutral, not a pass.
+        score=50.0 if structurally_ok else 25.0
+    return {"score":score,"reward":round((score/50.0)-1.0,4),"checks":checks,
+            "expected_match":expected_match,"evaluator":"generic_static_heuristic",
+            "warning":"Generic static heuristic only. Without a reference, score 50 is neutral; it does not execute code or prove factual correctness."}
+
 
 def evaluate_python_static(output: str, expected: str = "") -> dict[str, Any]:
     """Check Python syntax without executing generated code."""
