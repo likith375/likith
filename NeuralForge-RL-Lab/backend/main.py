@@ -543,12 +543,27 @@ def execute_training(run_id, request):
             reward_updates, reward_loss = validate_update_result(result, "train_step")
             updates += reward_updates
             if reward_loss is not None: losses.append(reward_loss)
+        final_checkpoint_id=None
+        if updates>0:
+            final_checkpoint_id=str(uuid.uuid4())
+            final_checkpoint_path=str(CHECKPOINT_DIR/final_checkpoint_id)
+            final_metadata=adapter.save_checkpoint(final_checkpoint_path) or {}
+            if not Path(final_checkpoint_path).exists():
+                raise RuntimeError("Post-training checkpoint failed: adapter did not create its checkpoint directory.")
+            with connect() as c:
+                c.execute("INSERT INTO checkpoints(id,run_id,label,kind,created_at,path,metadata_json) VALUES(?,?,?,?,?,?,?)",
+                          (final_checkpoint_id,run_id,"Automatic checkpoint after training run","model_weights",
+                           now(),final_checkpoint_path,json.dumps(final_metadata)))
         with connect() as c:
             state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
             stopped=bool(state and state["stop_requested"])
             duration_hit=bool(deadline and time.monotonic()>=deadline)
             status="stopped" if stopped else "completed"
             note=("Stopped by user. " if stopped else "")+("Time budget reached. " if duration_hit else "")+f"Processed {completed_episodes} episodes. Training uses the configured adapter."
+            if final_checkpoint_id:
+                note+=f" Final model checkpoint: {final_checkpoint_id}."
+            elif updates==0:
+                note+=" No optimizer updates were reported; only the pre-training backup is available."
             c.execute("UPDATE runs SET status=?,finished_at=?,notes=?,real_updates=?,avg_loss=?,episodes_completed=?,human_feedback_examples=?,feedback_updates=? WHERE id=?",
                       (status,now(),note,updates,sum(losses)/len(losses) if losses else 0,
                        completed_episodes,feedback_examples,feedback_updates,run_id))
