@@ -247,7 +247,7 @@ def static_evaluate(output: str, expected: str = "", domain: str = "general") ->
     checks = {
       "non_empty": True,
       "no_placeholder": not any(x in text.lower() for x in ("todo", "demo output", "insert code here", "lorem ipsum")),
-      "balanced_delimiters": all(text.count(x) >= text.count(y) for x,y in (("(",")"),("{","}"),("[","]"))),
+      "balanced_delimiters": all(text.count(x) == text.count(y) for x,y in (("(",")"),("{","}"),("[","]"))),
     }
     has_reference=bool(expected.strip())
     expected_match=has_reference and expected.strip() in text
