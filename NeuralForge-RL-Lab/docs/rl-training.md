@@ -9,7 +9,7 @@ The training controller combines two kinds of learning when the selected adapter
 
 The built-in Hugging Face adapter implements both supervised next-token updates and a minimal REINFORCE-style policy-gradient baseline. The supervised and policy updates both count toward the run's update metric.
 
-The custom adapter may implement `supervised_step(batch)` as an optional hook. If it is absent, the lab still performs reward-based updates through `train_step(batch)`.
+The custom adapter may implement `supervised_step(batch)` as an optional hook. If it is absent, the lab still performs reward-based updates through `train_step(batch)`. Reward updates must return a dictionary with an explicit positive integer `updates` count. The lab no longer assumes that a missing return value means learning happened. Non-finite losses are rejected. Supervised updates may explicitly report zero when no examples were usable.
 
 ## REINFORCE baseline
 
@@ -33,22 +33,19 @@ This is a minimal REINFORCE-style policy-gradient baseline. It is not PPO, RLHF 
 
 Keep train, validation and test examples distinct. Do not train on test examples or feed test answers into prompts. Remove duplicated or near-duplicated examples across splits.
 
-## Current reward function
+## Evaluation contract
 
-The built-in evaluator checks whether output is non-empty, contains common Luau constructs, avoids placeholder markers, has roughly balanced delimiters, and optionally contains a supplied expected-output string.
+The built-in evaluator is deliberately domain-neutral. It checks basic text properties such as non-empty output, placeholder markers, delimiter balance, and optional reference matching. It is a **text heuristic**, not a fact checker, code parser, type checker, or runtime test. It can be gamed by outputting plausible-looking text. Treat it as a smoke test only.
 
-The score is a **text heuristic**, not a Luau parser, type checker, Roblox API validator or runtime test. It can be gamed by outputting code-shaped text. Treat it as a smoke test only.
+For stronger evaluation, a trusted adapter may implement `evaluate(prompt, output, expected, domain)` and return a dictionary with `score` from 0 to 100 and `reward` from -1 to 1, plus optional `checks`, `evaluator`, and `warning` fields. This allows different evaluators for Python, mathematics, science, writing, engineering, and other subjects. Keep evaluation deterministic where possible, document its evidence, and never execute untrusted code in the API process.
 
-## Recommended next evaluator
+## Evaluator examples
 
-For serious Roblox Luau training, build a separate isolated evaluator that can:
-
-- Parse Luau syntax with a real Luau parser.
-- Check required identifiers, function signatures and structural properties.
-- Run unit tests against mocked Roblox services where possible.
-- Run integration tests in a disposable Roblox Studio environment when appropriate.
-- Enforce CPU, memory, file-system and time limits.
-- Return structured test results, not just a single score.
+- Python: run static analysis or unit tests inside a disposable container with strict CPU, memory, file-system and time limits.
+- Mathematics: use symbolic/numeric equivalence checks and tolerances where appropriate.
+- Science: compare claims against curated, cited reference material; do not treat a language-model judge as ground truth.
+- Writing: evaluate a transparent rubric such as relevance, structure, clarity and requested constraints.
+- Game scripting: parse the target language and run isolated tests with mocked engine APIs where possible.
 
 Never run untrusted generated code in the main API process.
 
