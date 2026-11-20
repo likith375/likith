@@ -1465,6 +1465,8 @@ def test_dashboard_exposes_feedback_and_training_preflight_controls(tmp_path, mo
     assert 'id="feedback"' in page
     assert 'id="training-preflight"' in page
     assert 'id="feedback-list"' in page
+    assert 'id="apply-duplicate-split"' in page
+    assert 'data-update-split' in script
     assert 'api("/api/attempts?limit=100")' in script
     assert 'api("/api/training/preview")' in script
 
