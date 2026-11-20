@@ -1224,6 +1224,7 @@ def test_dataset_split_update_can_resolve_exact_duplicate_leakage(tmp_path, monk
     fixed = client.patch("/api/datasets/split-test/split", json={"split": "train"})
     assert fixed.status_code == 200
     assert client.get("/api/datasets/stats").json()["duplicate_split_conflicts"] == 0
+    client.delete("/api/datasets/split-train")
     moved_out = client.patch("/api/datasets/split-test/split", json={"split": "validation"})
     assert moved_out.status_code == 200
     assert moved_out.json()["disabled_generated_tasks"] == 1
