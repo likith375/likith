@@ -937,3 +937,18 @@ def test_direct_upload_records_sha256_provenance(tmp_path, monkeypatch):
         row = db.execute("SELECT metadata_json FROM datasets WHERE name='Reference material: square.py'").fetchone()
     metadata = json.loads(row["metadata_json"])
     assert metadata["sha256"] == hashlib.sha256(raw).hexdigest()
+
+
+
+def test_long_source_file_is_chunked_without_split_leakage(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    source = ("def function_" + "x" * 10 + "():\n    return 1\n\n") * 180
+    response = client.post("/api/datasets/import", files={
+        "file": ("large_module.py", source.encode(), "text/x-python")
+    })
+    assert response.status_code == 200
+    rows = [x for x in client.get("/api/datasets").json()
+            if x["name"].startswith("Reference material: large_module.py")]
+    assert len(rows) > 1
+    assert {x["split"] for x in rows} == {"train"}
+    assert all(len(x["content"]) <= 3200 for x in rows)
