@@ -126,7 +126,12 @@ def test_training_uses_supervised_and_reward_updates(tmp_path, monkeypatch):
     assert run["episodes_completed"] == 2
     assert run["real_updates"] == 2
     assert adapter.sft == 1 and adapter.rl == 1
-    assert len(client.get("/api/checkpoints").json()) == 1
+    checkpoints = client.get("/api/checkpoints").json()
+    assert len(checkpoints) == 2
+    assert {item["label"] for item in checkpoints} == {
+        "Automatic backup before training run",
+        "Automatic checkpoint after training run"
+    }
     with main.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM task_attempts WHERE run_id='fake-run'").fetchone()[0] == 2
 
@@ -712,3 +717,32 @@ def test_adapter_test_reports_generation_without_weight_updates(tmp_path, monkey
     assert result["generation_ok"] is True
     assert result["sample_output"] == "A generated sample."
     assert adapter.updates == 0
+
+
+
+def test_post_training_checkpoint_failure_is_reported(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class CheckpointFailureAdapter:
+        name = "checkpoint-failure-adapter"
+        def __init__(self): self.saves = 0
+        def generate(self, prompt, context=None): return "A generated answer."
+        def train_step(self, batch): return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination):
+            self.saves += 1
+            if self.saves == 1:
+                Path(destination).mkdir(parents=True, exist_ok=True)
+                return {"saved": destination}
+            return {"error": "simulated final save failure"}
+        def load_checkpoint(self, source): return {}
+    adapter = CheckpointFailureAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("final-checkpoint-failure", "queued", 1, main.now()))
+    main.execute_training("final-checkpoint-failure", {"episodes": 1, "batch_size": 1})
+    run = client.get("/api/runs/final-checkpoint-failure").json()
+    assert run["status"] == "failed"
+    assert "Post-training checkpoint failed" in run["error"]
+    checkpoints = client.get("/api/checkpoints").json()
+    assert len(checkpoints) == 1
+    assert checkpoints[0]["label"] == "Automatic backup before training run"
