@@ -667,7 +667,7 @@ DATASET_EXTENSIONS = {
     ".html", ".htm", ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".ipynb", ".java",
     ".c", ".h", ".cpp", ".hpp", ".cs", ".go", ".rs", ".php", ".rb", ".swift", ".kt",
     ".dart", ".scala", ".sql", ".sh", ".bash", ".zsh", ".bat", ".cmd", ".ps1", ".r",
-    ".m", ".pl", ".lua", ".luau", ".vue", ".svelte", ".graphql", ".proto", ".pdf", ".docx"
+    ".m", ".pl", ".lua", ".luau", ".vue", ".svelte", ".graphql", ".proto", ".pdf", ".docx", ".xlsx", ".pptx"
 }
 TEXT_EXTENSIONS = DATASET_EXTENSIONS - {".jsonl", ".json", ".csv", ".ipynb"}
 
@@ -795,6 +795,49 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
             raise ValueError("No readable text was found in this DOCX file.")
         return [{"prompt": f"Reference material: {Path(filename).name}",
                  "content": content, "category": "document", "split": "train"}]
+    if suffix == ".xlsx":
+        try:
+            from openpyxl import load_workbook
+        except ImportError as exc:
+            raise ValueError("XLSX import requires openpyxl. Install requirements.txt and restart.") from exc
+        workbook=load_workbook(io.BytesIO(raw),read_only=True,data_only=True)
+        rows=[]
+        for sheet in workbook.worksheets:
+            iterator=sheet.iter_rows(values_only=True)
+            headers=next(iterator,None)
+            if not headers: continue
+            header_names=[str(value).strip() if value is not None else f"column_{i+1}"
+                          for i,value in enumerate(headers)]
+            for row_number,values in enumerate(iterator,2):
+                if not any(value is not None and str(value).strip() for value in values): continue
+                item={header_names[i]:value for i,value in enumerate(values) if i<len(header_names)}
+                item.setdefault("prompt",f"{Path(filename).name} · {sheet.title} row {row_number}")
+                item.setdefault("category","spreadsheet")
+                rows.append(item)
+        workbook.close()
+        if not rows: raise ValueError("No non-empty rows were found in this workbook.")
+        return rows
+    if suffix == ".pptx":
+        try:
+            from pptx import Presentation
+        except ImportError as exc:
+            raise ValueError("PPTX import requires python-pptx. Install requirements.txt and restart.") from exc
+        presentation=Presentation(io.BytesIO(raw))
+        slides=[]
+        for slide_number,slide in enumerate(presentation.slides,1):
+            parts=[]
+            for shape in slide.shapes:
+                if getattr(shape,"has_text_frame",False) and shape.text.strip():
+                    parts.append(shape.text.strip())
+                if getattr(shape,"has_table",False):
+                    for row in shape.table.rows:
+                        parts.append(" | ".join(cell.text for cell in row.cells))
+            content="\\n".join(parts).strip()
+            if content:
+                slides.append({"prompt":f"{Path(filename).name} slide {slide_number}",
+                               "content":content,"category":"presentation","split":"train"})
+        if not slides: raise ValueError("No readable slide text was found in this presentation.")
+        return slides
     decoded = raw.decode("utf-8-sig")
     if suffix == ".jsonl":
         return [json.loads(line) for line in decoded.splitlines() if line.strip()]
@@ -830,7 +873,7 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
     except Exception as exc:
         raise HTTPException(400,f"Could not parse uploaded material: {type(exc).__name__}: {exc}")
     if not isinstance(rows,list): raise HTTPException(400,"Uploaded material did not produce examples.")
-    is_document=Path(file.filename).suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".html",".htm",".xml"}
+    is_document=Path(file.filename).suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".pptx",".html",".htm",".xml"}
     prepared=prepared_dataset_rows(rows,category,Path(file.filename).name,document_chunks=is_document)
     count=0
     with connect() as c:
