@@ -79,7 +79,7 @@ The required adapter contract:
 - `save_checkpoint(path)` saves model weights and training state.
 - `load_checkpoint(path)` restores them.
 
-A successful-looking return value is not enough: `train_step` must really update trainable parameters and return an explicit positive integer `updates` count. Missing update counts, zero reward updates, and non-finite losses fail the run instead of being counted as learning.
+A successful-looking return value is not enough: `train_step` must return an explicit non-negative integer `updates` count and must report only optimizer steps that really happened. Missing counts and non-finite losses fail the run. A zero-gradient batch is valid, but it is not counted as learning.
 
 ## Optional built-in Hugging Face adapter
 
