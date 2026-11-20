@@ -11,3 +11,6 @@
 
 
 Office files (DOCX, XLSX and PPTX) are checked as ZIP containers before parsing. NeuralForge rejects malformed archives, more than 5,000 entries, expanded content over 100 MB, individual entries over 30 MB, and suspicious compression ratios. The upload limit is 15 MB compressed; these checks reduce, but do not eliminate, parser risk.
+
+
+Run NeuralForge as a single Uvicorn worker/process. Its training scheduler and model-operation locks are in-process locks; multiple workers would not share them and could attempt concurrent runs against the same local model/database. The supplied Windows and Linux launchers use one worker.
