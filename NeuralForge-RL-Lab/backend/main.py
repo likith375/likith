@@ -1355,7 +1355,8 @@ def run_report(run_id: str):
             WHERE a.run_id=? ORDER BY a.created_at DESC LIMIT 100""",(run_id,)).fetchall()
         checkpoints=c.execute("""SELECT id,label,kind,created_at,metadata_json
             FROM checkpoints WHERE run_id=? ORDER BY created_at""",(run_id,)).fetchall()
-    return {"run":dict(run),"attempt_stats":{
+        feedback_consumed=c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_run_id=?",(run_id,)).fetchone()[0]
+    return {"run":dict(run),"feedback_consumed":feedback_consumed,"attempt_stats":{
                 "attempts":stats["attempts"],
                 "average_score":round(stats["average_score"],2) if stats["average_score"] is not None else None,
                 "lowest_score":stats["lowest_score"],"highest_score":stats["highest_score"],
