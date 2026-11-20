@@ -408,7 +408,15 @@ def execute_training(run_id, request):
         if adapter is None:
             raise RuntimeError("No model is connected. Configure an adapter or a Hugging Face model path first.")
         model_name=getattr(adapter,"name",type(adapter).__name__)
+        # Preserve a restorable model snapshot before the first optimizer update.
+        backup_id=str(uuid.uuid4())
+        backup_path=str(CHECKPOINT_DIR/backup_id)
+        backup_metadata=adapter.save_checkpoint(backup_path) or {}
+        if not Path(backup_path).exists():
+            raise RuntimeError("Automatic pre-training checkpoint failed: adapter did not create its checkpoint directory.")
         with connect() as c:
+            c.execute("INSERT INTO checkpoints(id,run_id,label,kind,created_at,path,metadata_json) VALUES(?,?,?,?,?,?,?)",
+                      (backup_id,run_id,"Automatic backup before training run","model_weights",now(),backup_path,json.dumps(backup_metadata)))
             c.execute("UPDATE runs SET model_name=? WHERE id=?",(model_name,run_id))
         cfg=setting_map()
         episodes=request["episodes"]
