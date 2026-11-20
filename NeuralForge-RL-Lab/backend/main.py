@@ -1100,7 +1100,12 @@ def generate_tasks_from_dataset(limit: int = 30):
         rows=c.execute("SELECT id,name,category,content FROM datasets WHERE split='train' ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
         existing={r["title"] for r in c.execute("SELECT title FROM tasks")}
         created=0
+        seen_examples=set()
         for row in rows:
+            content_key=(row["category"],hashlib.sha256(row["content"].encode("utf-8")).hexdigest())
+            if content_key in seen_examples:
+                continue
+            seen_examples.add(content_key)
             title=("Practice: "+row["name"])[:180]
             if title in existing:
                 continue
