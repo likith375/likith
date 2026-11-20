@@ -439,6 +439,7 @@ def execute_training(run_id, request):
         batch_size=request.get("batch_size") or int(cfg.get("batch_size","2"))
         duration_hours=float(request.get("duration_hours",0))
         deadline=time.monotonic()+duration_hours*3600 if duration_hours>0 else None
+        updates=0; losses=[]
         # Human ratings are the strongest available reward signal. They are
         # consumed only after a real adapter update succeeds.
         with connect() as c:
@@ -461,7 +462,7 @@ def execute_training(run_id, request):
             with connect() as c:
                 c.execute(f"UPDATE human_feedback SET consumed_at=? WHERE id IN ({placeholders}) AND consumed_at IS NULL",
                           [now(),*consumed_ids])
-        samples=[]; total_reward=0.0; successes=0; updates=updates; losses=losses; supervised_cursor=0; completed_episodes=0
+        samples=[]; total_reward=0.0; successes=0; supervised_cursor=0; completed_episodes=0
         for episode in range(episodes):
             with connect() as c:
                 run_state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
