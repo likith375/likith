@@ -6,3 +6,8 @@ venv/
 *.db
 *.sqlite3
 checkpoints/
+
+# User-provided local training material and generated mistake logs
+data/inbox/*
+!data/inbox/README.md
+data/mistakes/*.jsonl
