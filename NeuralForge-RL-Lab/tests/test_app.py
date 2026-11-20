@@ -1027,3 +1027,11 @@ def test_stop_requested_before_worker_starts_prevents_model_updates(tmp_path, mo
     assert run["status"] == "stopped"
     assert run["real_updates"] == 0
     assert adapter.reward_calls == 0
+
+
+
+def test_generic_evaluator_rejects_unmatched_delimiter_counts():
+    result = main.static_evaluate("A calculation with an unclosed ( bracket")
+    assert result["checks"]["balanced_delimiters"] is False
+    assert result["score"] == 25
+    assert result["reward"] == -0.5
