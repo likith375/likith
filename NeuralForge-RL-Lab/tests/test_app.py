@@ -315,6 +315,8 @@ def test_python_domain_checks_syntax_without_execution():
     broken_assignment = main.evaluate_python_static("x =")
     assert assignment["checks"]["python_syntax_valid"] is True
     assert broken_assignment["checks"]["python_syntax_valid"] is False
+    fenced = main.evaluate_python_static("Here is the code:\\n\\n```python3\\ndef add(a, b):\\n    return a + b\\n```")
+    assert fenced["checks"]["python_syntax_valid"] is True
 
 
 def test_instruction_dataset_schema_imports_question_and_answer_fields(tmp_path, monkeypatch):
