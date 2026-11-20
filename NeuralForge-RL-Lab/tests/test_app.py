@@ -124,6 +124,8 @@ def test_training_uses_supervised_and_reward_updates(tmp_path, monkeypatch):
     assert run["episodes_completed"] == 2
     assert run["real_updates"] == 2
     assert adapter.sft == 1 and adapter.rl == 1
+    with main.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM task_attempts WHERE run_id='fake-run'").fetchone()[0] == 2
 
 def test_validation_benchmark_never_calls_train_step(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
@@ -337,3 +339,32 @@ def test_dataset_normalizer_accepts_common_chat_fields():
     assert row["content"] == "Energy is the ability to do work."
     assert row["category"] == "science"
     assert row["metadata"]["difficulty"] == "beginner"
+
+
+def test_task_attempt_history_and_performance(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    class FakeAdapter:
+        name = "attempt-recorder"
+        def generate(self, prompt, context=None):
+            return "A complete answer with a clear explanation."
+    monkeypatch.setattr(main, "get_adapter", lambda: FakeAdapter())
+    response = client.post(f"/api/tasks/{task['id']}/try")
+    assert response.status_code == 200
+    refreshed = next(x for x in client.get("/api/tasks").json() if x["id"] == task["id"])
+    assert refreshed["attempt_count"] == 1
+    assert refreshed["latest_score"] is not None
+    performance = client.get("/api/tasks/performance").json()
+    assert next(x for x in performance if x["id"] == task["id"])["attempts"] == 1
+
+
+def test_task_delete_removes_its_attempt_history(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    main.record_attempt(task["id"], "", "test prompt", "test output", {
+        "score": 50, "reward": 0, "evaluator": "test", "checks": {}
+    })
+    response = client.delete(f"/api/tasks/{task['id']}")
+    assert response.status_code == 200
+    with main.connect() as db:
+        assert db.execute("SELECT COUNT(*) FROM task_attempts WHERE task_id=?", (task["id"],)).fetchone()[0] == 0
