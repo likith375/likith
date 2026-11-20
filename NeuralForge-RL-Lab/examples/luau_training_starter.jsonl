@@ -1,0 +1,30 @@
+{"prompt":"Declare a local variable","category":"syntax","content":"local coins = 10","split":"train"}
+{"prompt":"Create a function","category":"functions","content":"local function add(a, b)\n    return a + b\nend","split":"train"}
+{"prompt":"Get the Players service","category":"services","content":"local Players = game:GetService(\"Players\")","split":"train"}
+{"prompt":"Get the ReplicatedStorage service","category":"services","content":"local ReplicatedStorage = game:GetService(\"ReplicatedStorage\")","split":"train"}
+{"prompt":"Get the Workspace service","category":"services","content":"local Workspace = game:GetService(\"Workspace\")","split":"train"}
+{"prompt":"Connect a touched event","category":"events","content":"part.Touched:Connect(function(hit)\n    print(hit.Name)\nend)","split":"train"}
+{"prompt":"Create a part","category":"instances","content":"local part = Instance.new(\"Part\")\npart.Name = \"TrainingPart\"\npart.Parent = workspace","split":"train"}
+{"prompt":"Set a part anchored","category":"properties","content":"part.Anchored = true","split":"train"}
+{"prompt":"Set a part color","category":"properties","content":"part.Color = Color3.fromRGB(255, 80, 80)","split":"validation"}
+{"prompt":"Find a player character","category":"players","content":"local character = player.Character or player.CharacterAdded:Wait()","split":"test"}
+{"prompt":"Wait for Humanoid","category":"players","content":"local humanoid = character:WaitForChild(\"Humanoid\")","split":"train"}
+{"prompt":"Change WalkSpeed","category":"humanoid","content":"humanoid.WalkSpeed = 24","split":"train"}
+{"prompt":"Change health","category":"humanoid","content":"humanoid.Health = 100","split":"train"}
+{"prompt":"Loop over players","category":"loops","content":"for _, player in ipairs(Players:GetPlayers()) do\n    print(player.Name)\nend","split":"train"}
+{"prompt":"Create a RemoteEvent","category":"remotes","content":"local event = Instance.new(\"RemoteEvent\")\nevent.Name = \"TrainingEvent\"\nevent.Parent = game:GetService(\"ReplicatedStorage\")","split":"train"}
+{"prompt":"Listen for RemoteEvent on server","category":"remotes","content":"event.OnServerEvent:Connect(function(player, message)\n    print(player.Name, message)\nend)","split":"train"}
+{"prompt":"Fire RemoteEvent from client","category":"remotes","content":"event:FireServer(\"Hello\")","split":"train"}
+{"prompt":"Create a ModuleScript","category":"modules","content":"local module = {}\n\nfunction module.greet(name)\n    return \"Hello, \" .. name\nend\n\nreturn module","split":"train"}
+{"prompt":"Use task.wait","category":"timing","content":"task.wait(1)","split":"validation"}
+{"prompt":"Use a numeric for loop","category":"loops","content":"for i = 1, 10 do\n    print(i)\nend","split":"test"}
+{"prompt":"Check if a player has a character","category":"conditionals","content":"if player.Character then\n    print(\"Character exists\")\nend","split":"train"}
+{"prompt":"Create a table","category":"tables","content":"local inventory = { \"Sword\", \"Shield\", \"Potion\" }","split":"train"}
+{"prompt":"Add item to table","category":"tables","content":"table.insert(inventory, \"Key\")","split":"train"}
+{"prompt":"Define a ClickDetector event","category":"events","content":"clickDetector.MouseClick:Connect(function(player)\n    print(player.Name .. \" clicked\")\nend)","split":"train"}
+{"prompt":"Create a ScreenGui","category":"ui","content":"local gui = Instance.new(\"ScreenGui\")\ngui.Name = \"TrainingGui\"\ngui.Parent = player:WaitForChild(\"PlayerGui\")","split":"train"}
+{"prompt":"Create a TextLabel","category":"ui","content":"local label = Instance.new(\"TextLabel\")\nlabel.Size = UDim2.fromOffset(220, 50)\nlabel.Text = \"Hello Roblox\"\nlabel.Parent = gui","split":"train"}
+{"prompt":"Use pcall for protected call","category":"errors","content":"local success, result = pcall(function()\n    return 10 / 2\nend)\nif not success then\n    warn(result)\nend","split":"train"}
+{"prompt":"Find a child safely","category":"instances","content":"local door = workspace:FindFirstChild(\"Door\")\nif door then\n    door.Transparency = 0.5\nend","split":"train"}
+{"prompt":"Destroy an instance","category":"instances","content":"if part and part.Parent then\n    part:Destroy()\nend","split":"validation"}
+{"prompt":"Return multiple values","category":"functions","content":"local function getStats()\n    return 100, 20\nend\nlocal health, speed = getStats()","split":"test"}
