@@ -1229,4 +1229,4 @@ def test_dataset_split_update_can_resolve_exact_duplicate_leakage(tmp_path, monk
     assert moved_out.status_code == 200
     assert moved_out.json()["disabled_generated_tasks"] == 1
     task = next(x for x in client.get("/api/tasks").json() if x["id"] == "split-task")
-    assert task["enabled"] is False
+    assert task["enabled"] == 0
