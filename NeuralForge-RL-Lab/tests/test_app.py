@@ -39,12 +39,13 @@ def test_mistake_review_is_append_only(tmp_path, monkeypatch):
     }).json()
     before = client.get("/api/mistakes").json()[0]
     reviewed = client.patch(f"/api/mistakes/{created['id']}", json={
-        "verification": "verified", "note": "Checked manually"
+        "verification": "verified", "note": "Checked manually", "evidence": "Confirmed against Luau API reference"
     })
     assert reviewed.status_code == 200
     after = client.get("/api/mistakes?verification=verified").json()[0]
     assert before["output"] == after["output"] == "wrong output"
     assert after["verification"] == "verified"
+    assert after["evidence"] == "Confirmed against Luau API reference"
     assert main.verified_examples()[0]["correction"] == 'local p = Instance.new("Part")'
     assert client.get("/api/overview").json()["verified"] == 1
     with main.connect() as db:
