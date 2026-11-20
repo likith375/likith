@@ -1358,3 +1358,41 @@ def test_deleting_dataset_source_disables_generated_task_but_keeps_history(tmp_p
     stored_task = next(row for row in client.get("/api/tasks").json() if row["id"] == task["id"])
     assert stored_task["enabled"] == 0
     assert stored_task["expected"] == source["content"]
+
+
+
+def test_failed_checkpoint_restore_rolls_back_to_current_model(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class RestorableAdapter:
+        name = "restorable-test-adapter"
+        def __init__(self): self.state = "current-model"
+        def generate(self, prompt, context=None): return "test output"
+        def train_step(self, batch): return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination):
+            folder = Path(destination)
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "state.txt").write_text(self.state, encoding="utf-8")
+            return {"state": self.state}
+        def load_checkpoint(self, source):
+            restored = (Path(source) / "state.txt").read_text(encoding="utf-8")
+            if restored == "corrupt-checkpoint":
+                raise ValueError("checkpoint weights are corrupt")
+            self.state = restored
+            return {"state": self.state}
+    adapter = RestorableAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    bad_path = tmp_path / "bad-checkpoint"
+    bad_path.mkdir()
+    (bad_path / "state.txt").write_text("corrupt-checkpoint", encoding="utf-8")
+    with main.connect() as db:
+        db.execute("""INSERT INTO checkpoints
+          (id,run_id,label,kind,created_at,path,metadata_json)
+          VALUES(?,?,?,?,?,?,?)""",
+          ("bad-restore", "", "Corrupt checkpoint", "model_weights",
+           main.now(), str(bad_path), "{}"))
+    response = client.post("/api/checkpoints/bad-restore/restore")
+    assert response.status_code == 400
+    assert "previous model was restored" in response.json()["detail"]
+    assert adapter.state == "current-model"
+    safety = client.get("/api/checkpoints").json()
+    assert any(row["label"] == "Automatic safety backup before restore" for row in safety)
