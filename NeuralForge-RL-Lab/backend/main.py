@@ -1281,6 +1281,10 @@ def generate_tasks_from_dataset(limit: int = 30):
             for row in c.execute("""SELECT d.category,d.content FROM tasks t
                                     JOIN datasets d ON d.id=t.source_dataset_id""")
         }
+        represented_examples.update(
+            (row["category"],hashlib.sha256(row["expected"].encode("utf-8")).hexdigest())
+            for row in c.execute("SELECT category,expected FROM tasks WHERE expected<>''")
+        )
         query="""SELECT d.id,d.name,d.category,d.content FROM datasets d
                  WHERE d.split='train'
                    AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.source_dataset_id=d.id)
