@@ -117,7 +117,7 @@ def init_db():
         c.execute("UPDATE runs SET status='interrupted',finished_at=?,error=COALESCE(error,'Server restarted before this run finished.'),notes='Run interrupted by server restart; review checkpoint and resume with a new run.' WHERE status IN ('queued','running')",(now(),))
         if c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0] == 0:
             seed = [
-              ("Python example","programming","def add(a, b):\\n    return a + b","train"),
+              ("Python example","programming","def add(a, b):\n    return a + b","train"),
               ("Science example","science","Photosynthesis converts light energy into chemical energy.","train"),
               ("Mathematics example","mathematics","The area of a rectangle is length multiplied by width.","validation"),
               ("Writing example","writing","A clear paragraph begins with a focused topic sentence.","test"),
@@ -127,8 +127,8 @@ def init_db():
                           (str(uuid.uuid4()),name,cat,split,code,now()))
         if c.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0:
             c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,created_at) VALUES(?,?,?,?,?,?,?)",
-                      (str(uuid.uuid4()),"Create a health variable","Declare a local variable named health with value 100.",
-                       "local health = 100","easy","syntax",now()))
+                      (str(uuid.uuid4()),"Explore a subject","Explain one important concept from the subject being studied, using a clear example.",
+                       "","easy","general",now()))
         defaults = {"adapter_spec":"", "model_path":"", "max_new_tokens":"384",
                     "learning_rate":"0.00001", "batch_size":"2", "reward_threshold":"0.45"}
         for k,v in defaults.items():
