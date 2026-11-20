@@ -535,7 +535,6 @@ def import_inbox_folder():
                 skipped.append({"file":path.name,"reason":"already imported"})
                 continue
         try:
-            decoded=raw.decode("utf-8-sig")
             rows=parse_uploaded_material(path.name, raw)
             if not isinstance(rows,list): raise ValueError("Expected a list of examples.")
         except Exception as exc:
