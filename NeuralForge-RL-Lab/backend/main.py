@@ -187,6 +187,9 @@ class RunIn(BaseModel):
     batch_size: int | None = Field(default=None, ge=1, le=32)
     duration_hours: float = Field(default=0, ge=0, le=24)
 
+class DatasetSplitIn(BaseModel):
+    split: str = Field(pattern="^(train|validation|test)$")
+
 class FeedbackIn(BaseModel):
     rating: int = Field(ge=1, le=5, strict=True)
     note: str = Field(default="", max_length=4000)
@@ -1007,6 +1010,20 @@ def delete_dataset(dataset_id: str):
         if not cur.rowcount:
             raise HTTPException(404, "Dataset example not found.")
     return {"deleted": True, "id": dataset_id}
+
+@app.patch("/api/datasets/{dataset_id}/split")
+def update_dataset_split(dataset_id: str, payload: DatasetSplitIn):
+    with connect() as c:
+        row=c.execute("SELECT content FROM datasets WHERE id=?",(dataset_id,)).fetchone()
+        if not row:
+            raise HTTPException(404,"Dataset example not found.")
+        conflict=c.execute("SELECT COUNT(*) FROM datasets WHERE content=? AND split<>? AND id<>?",
+                           (row["content"],payload.split,dataset_id)).fetchone()[0]
+        if conflict:
+            raise HTTPException(409,"Identical content exists in another split. Move all exact duplicates into the same split.")
+        c.execute("UPDATE datasets SET split=? WHERE id=?",(payload.split,dataset_id))
+    return {"updated":True,"id":dataset_id,"split":payload.split}
+
 
 
 @app.get("/api/tasks")
