@@ -189,6 +189,7 @@ class RunIn(BaseModel):
 
 class DatasetSplitIn(BaseModel):
     split: str = Field(pattern="^(train|validation|test)$")
+    apply_to_exact_duplicates: bool = False
 
 class FeedbackIn(BaseModel):
     rating: int = Field(ge=1, le=5, strict=True)
@@ -1038,17 +1039,27 @@ def update_dataset_split(dataset_id: str, payload: DatasetSplitIn):
         row=c.execute("SELECT content FROM datasets WHERE id=?",(dataset_id,)).fetchone()
         if not row:
             raise HTTPException(404,"Dataset example not found.")
-        conflict=c.execute("SELECT COUNT(*) FROM datasets WHERE content=? AND split<>? AND id<>?",
-                           (row["content"],payload.split,dataset_id)).fetchone()[0]
-        if conflict:
-            raise HTTPException(409,"Identical content exists in another split. Move all exact duplicates into the same split.")
-        c.execute("UPDATE datasets SET split=? WHERE id=?",(payload.split,dataset_id))
+        if payload.apply_to_exact_duplicates:
+            affected=c.execute("SELECT id FROM datasets WHERE content=?",(row["content"],)).fetchall()
+            dataset_ids=[item["id"] for item in affected]
+            placeholders=",".join("?" for _ in dataset_ids)
+            c.execute(f"UPDATE datasets SET split=? WHERE id IN ({placeholders})",
+                      [payload.split,*dataset_ids])
+        else:
+            conflict=c.execute("SELECT COUNT(*) FROM datasets WHERE content=? AND split<>? AND id<>?",
+                               (row["content"],payload.split,dataset_id)).fetchone()[0]
+            if conflict:
+                raise HTTPException(409,"Identical content exists in another split. Use apply_to_exact_duplicates to move the entire exact-content group.")
+            dataset_ids=[dataset_id]
+            c.execute("UPDATE datasets SET split=? WHERE id=?",(payload.split,dataset_id))
         disabled_tasks=0
         if payload.split!="train":
-            result=c.execute("UPDATE tasks SET enabled=0 WHERE source_dataset_id=? AND enabled=1",(dataset_id,))
+            placeholders=",".join("?" for _ in dataset_ids)
+            result=c.execute(f"UPDATE tasks SET enabled=0 WHERE source_dataset_id IN ({placeholders}) AND enabled=1",
+                             dataset_ids)
             disabled_tasks=result.rowcount
     return {"updated":True,"id":dataset_id,"split":payload.split,
-            "disabled_generated_tasks":disabled_tasks}
+            "updated_examples":len(dataset_ids),"disabled_generated_tasks":disabled_tasks}
 
 
 
