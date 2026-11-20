@@ -559,10 +559,10 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
         document = Document(io.BytesIO(raw))
         paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
         for table_index, table in enumerate(document.tables, 1):
-            table_text = "\\n[Table " + str(table_index) + "]\\n"
-            table_text += "\\n".join(" | ".join(cell.text for cell in row.cells) for row in table.rows)
+            table_text = "\n[Table " + str(table_index) + "]\n"
+            table_text += "\n".join(" | ".join(cell.text for cell in row.cells) for row in table.rows)
             paragraphs.append(table_text)
-        content = "\\n\\n".join(paragraphs).strip()
+        content = "\n\n".join(paragraphs).strip()
         if not content:
             raise ValueError("No readable text was found in this DOCX file.")
         return [{"prompt": f"Reference material: {Path(filename).name}",
