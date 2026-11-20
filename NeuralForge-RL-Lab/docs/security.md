@@ -8,3 +8,6 @@
 - Use a dedicated, low-privilege operating-system account for local training.
 - Any future code execution evaluator must run in a separate disposable sandbox with strict CPU, memory, filesystem and time limits. Do not execute generated code inside the API server.
 - Review and back up model checkpoints before training. A bad reward function can degrade model behavior.
+
+
+Office files (DOCX, XLSX and PPTX) are checked as ZIP containers before parsing. NeuralForge rejects malformed archives, more than 5,000 entries, expanded content over 100 MB, individual entries over 30 MB, and suspicious compression ratios. The upload limit is 15 MB compressed; these checks reduce, but do not eliminate, parser risk.
