@@ -282,7 +282,7 @@ class HuggingFaceREINFORCEAdapter:
         )
         state_path = path / "neuralforge_training.pt"
         if state_path.exists():
-            state = self.torch.load(state_path, map_location=self.device, weights_only=False)
+            state = self.torch.load(state_path, map_location=self.device, weights_only=True)
             self.optimizer.load_state_dict(state["optimizer"])
             self.baseline = float(state.get("baseline", 0.0))
         self.model.train()
