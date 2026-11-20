@@ -1096,3 +1096,23 @@ def test_evaluate_endpoint_uses_configured_domain_evaluator(tmp_path, monkeypatc
     assert response.status_code == 200
     assert response.json()["score"] == 91
     assert response.json()["checks"]["verified"] is True
+
+
+
+def test_feedback_export_preserves_rating_reward_and_attempt_context(tmp_path, monkeypatch):
+    import json
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    attempt_id = main.record_attempt(task["id"], "", "Explain energy", "Energy is conserved.", {
+        "score": 80, "reward": 0.6, "evaluator": "test", "checks": {}
+    })
+    client.post(f"/api/attempts/{attempt_id}/feedback", json={
+        "rating": 5, "note": "Good answer", "evidence": "Verified source"
+    })
+    response = client.get("/api/feedback/export")
+    rows = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    exported = rows[0]
+    assert exported["rating"] == 5
+    assert exported["reward"] == 1
+    assert exported["prompt"] == "Explain energy"
+    assert exported["output"] == "Energy is conserved."
