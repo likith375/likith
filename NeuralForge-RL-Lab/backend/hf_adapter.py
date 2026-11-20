@@ -280,6 +280,11 @@ class HuggingFaceREINFORCEAdapter:
         metadata_path = path / "neuralforge_metadata.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.exists() else {}
         self.use_lora = bool(metadata.get("use_lora", self.use_lora))
+        self.lora_r = int(metadata.get("lora_r", self.lora_r))
+        self.lora_alpha = int(metadata.get("lora_alpha", self.lora_alpha))
+        self.lora_dropout = float(metadata.get("lora_dropout", self.lora_dropout))
+        self.lora_target_modules = list(metadata.get("lora_target_modules", self.lora_target_modules))
+        self.baseline = float(metadata.get("baseline", 0.0))
         base_path = str(metadata.get("base_model_path") or self.base_model_path)
         if self.use_lora:
             try:
