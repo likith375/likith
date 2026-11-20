@@ -1467,7 +1467,8 @@ def _run_benchmark_locked(split: str="validation", limit: int=100):
     if not rows: raise HTTPException(400,f"No {split} examples are available.")
     details=[]; total=0.0; passed=0
     for row in rows:
-        prompt=build_prompt({"prompt":f"Answer or solve this training example: {row['name']}","category":row["category"]})
+        prompt=build_prompt({"prompt":f"Answer or solve this training example: {row['name']}",
+                              "category":row["category"],"expected":row["content"]})
         try:
             with MODEL_EXECUTION_LOCK:
                 generated=adapter.generate(prompt,{"benchmark_split":split,"category":row["category"],
