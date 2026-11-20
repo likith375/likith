@@ -952,3 +952,26 @@ def test_long_source_file_is_chunked_without_split_leakage(tmp_path, monkeypatch
     assert len(rows) > 1
     assert {x["split"] for x in rows} == {"train"}
     assert all(len(x["content"]) <= 3200 for x in rows)
+
+
+
+def test_run_report_collects_attempts_and_checkpoints(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("report-run", "completed", 1, main.now()))
+    main.record_attempt(task["id"], "report-run", "Explain a concept", "A clear answer", {
+        "score": 80, "reward": 0.6, "evaluator": "rubric", "checks": {"clarity": True}
+    })
+    with main.connect() as db:
+        db.execute("""INSERT INTO checkpoints
+          (id,run_id,label,kind,created_at,path,metadata_json)
+          VALUES(?,?,?,?,?,?,?)""",
+          ("report-checkpoint", "report-run", "After run", "model_weights",
+           main.now(), "/tmp/checkpoint", "{}"))
+    report = client.get("/api/runs/report-run/report").json()
+    assert report["attempt_stats"]["attempts"] == 1
+    assert report["attempt_stats"]["average_score"] == 80
+    assert report["recent_attempts"][0]["task_title"] == task["title"]
+    assert report["checkpoints"][0]["label"] == "After run"
