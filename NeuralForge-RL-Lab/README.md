@@ -15,7 +15,7 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a m
 - Background training runs, live run polling, reward and loss metrics.
 - Optional training time budget up to 24 hours, episode cap, and graceful stop control.
 - Combined supervised fine-tuning on imported train-split examples plus reward-based updates when the adapter supports it.
-- A watched `data/inbox/` folder for dropping your own Luau and documentation files.
+- A watched `data/inbox/` folder for dropping supported source files, notebooks, datasets and documentation from any subject.
 - Dedicated `data/mistakes/mistakes.jsonl` append-only audit log.
 - Held-out validation and test benchmarks with stored per-example results.
 - A model-adapter contract for your own scratch-built Python AI.
@@ -66,7 +66,7 @@ Open http://127.0.0.1:8000.
 
 The required adapter contract:
 
-- `generate(prompt, context)` returns generated Luau text.
+- `generate(prompt, context)` returns an answer or artifact appropriate to the selected subject.
 - `train_step(batch)` performs an actual optimizer update and returns update/loss information.
 - `save_checkpoint(path)` saves model weights and training state.
 - `load_checkpoint(path)` restores them.
@@ -86,7 +86,7 @@ Download or prepare a **local** causal language model directory that is compatib
 - Adapter module: `backend.hf_adapter:load_adapter`
 - Local model folder: path to your local model directory
 
-The built-in adapter uses sampled response tokens and a REINFORCE-style reward objective. It is an experimental baseline for learning workflows, not a state-of-the-art coding model. It does not download model weights or call paid APIs.
+The built-in adapter uses sampled response tokens and a REINFORCE-style reward objective, independent of any single programming language. It is an experimental baseline for learning workflows, not a state-of-the-art coding model. It does not download model weights or call paid APIs.
 
 ## Supported upload formats
 
