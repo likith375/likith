@@ -733,11 +733,13 @@ def normalize_dataset_row(row: dict[str, Any], index: int, default_category: str
 
     if not prompt: prompt=f"Example {index+1}"
     if not content: return None
-    excluded=set(prompt_keys+content_keys+("category","split","messages","conversations"))
+    excluded=set(prompt_keys+content_keys+("category","split","messages","conversations","metadata"))
+    nested_metadata=row.get("metadata") if isinstance(row.get("metadata"),dict) else {}
+    metadata={**nested_metadata,**{k:v for k,v in row.items() if k not in excluded}}
     return {"prompt":prompt[:300],"content":content,
             "category":str(row.get("category") or default_category)[:80],
             "split":str(row.get("split") or "").lower(),
-            "metadata":{k:v for k,v in row.items() if k not in excluded}}
+            "metadata":metadata}
 
 
 def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, source_name: str,
