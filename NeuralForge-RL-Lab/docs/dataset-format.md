@@ -1,6 +1,6 @@
 # Dataset format
 
-JSONL is the preferred interchange format: one JSON object per line.
+JSONL is the preferred interchange format: one JSON object per line. Dataset export preserves category, split, content and nested provenance metadata so an exported dataset can be re-imported without losing its source annotations.
 
 ## Fields
 
