@@ -13,6 +13,7 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a P
 - Append-only mistake records with a separate review-event history. Only verified corrections are added to future task prompts.
 - Static Luau response heuristics with transparent checks and explicit warnings.
 - Background training runs, live run polling, reward and loss metrics.
+- Optional training time budget up to 24 hours, episode cap, and graceful stop control.
 - Combined supervised fine-tuning on imported train-split examples plus reward-based updates when the adapter supports it.
 - A watched `data/inbox/` folder for dropping your own Luau and documentation files.
 - Dedicated `data/mistakes/mistakes.jsonl` append-only audit log.
