@@ -489,7 +489,7 @@ def chunk_reference_text(text: str, max_chars: int = 3200) -> list[str]:
                 chunks.append(remaining[:boundary].strip())
                 remaining=remaining[boundary:].strip()
             continue
-        candidate=(current+"\\n\\n"+paragraph).strip() if current else paragraph
+        candidate=(current+"\n\n"+paragraph).strip() if current else paragraph
         if len(candidate)>max_chars and current:
             chunks.append(current); current=paragraph
         else:
@@ -559,7 +559,7 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
         document = Document(io.BytesIO(raw))
         paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
         for table_index, table in enumerate(document.tables, 1):
-            paragraphs.append("\\n[Table " + str(table_index) + "]\\n" + "\\n".join(" | ".join(cell.text for cell in row.cells) for row in table.rows))
+            paragraphs.append("\n[Table  + str(table_index) + "]\\n" + "\n".join(" | ".join(cell.text for cell in row.cells) for row in table.rows))
         content = "\\n\\n".join(paragraphs).strip()
         if not content:
             raise ValueError("No readable text was found in this DOCX file.")
