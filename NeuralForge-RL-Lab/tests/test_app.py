@@ -1622,3 +1622,25 @@ def test_supervised_batches_run_even_when_reward_is_neutral(tmp_path, monkeypatc
     assert run["status"] == "completed"
     assert adapter.supervised_calls == 2
     assert run["real_updates"] == 2
+
+
+
+def test_mistake_review_event_export_preserves_audit_history(tmp_path, monkeypatch):
+    import json
+    client = setup_client(tmp_path, monkeypatch)
+    mistake = client.post("/api/mistakes", json={
+        "prompt": "Explain gravity", "output": "Incorrect answer",
+        "category": "physics", "evidence": "Initial evidence",
+        "correction": "Gravity attracts masses."
+    }).json()
+    client.patch(f"/api/mistakes/{mistake['id']}", json={
+        "verification": "needs_review", "note": "Need a stronger source",
+        "correction": "Gravity is an attractive interaction between masses.",
+        "evidence": "Reference pending"
+    })
+    response = client.get("/api/mistakes/events/export")
+    rows = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    assert len(rows) == 1
+    assert rows[0]["mistake_id"] == mistake["id"]
+    assert rows[0]["action"] == "needs_review"
+    assert rows[0]["original_prompt"] == "Explain gravity"
