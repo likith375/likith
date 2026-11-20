@@ -1409,6 +1409,20 @@ def export_mistakes():
         for row in rows: yield json.dumps(row,ensure_ascii=False)+"\n"
     return StreamingResponse(stream(),media_type="application/x-ndjson",headers={"Content-Disposition":"attachment; filename=neuralforge-mistakes.jsonl"})
 
+@app.get("/api/mistakes/events/export")
+def export_mistake_events():
+    with connect() as c:
+        rows=[dict(row) for row in c.execute("""SELECT e.*,m.prompt AS original_prompt,
+            m.output AS original_output,m.category AS original_category
+            FROM mistake_events e LEFT JOIN mistakes m ON m.id=e.mistake_id
+            ORDER BY e.created_at,e.id""")]
+    def stream():
+        for row in rows:
+            yield json.dumps(row,ensure_ascii=False,default=str)+"\n"
+    return StreamingResponse(stream(),media_type="application/x-ndjson",
+        headers={"Content-Disposition":"attachment; filename=neuralforge-mistake-review-events.jsonl"})
+
+
 @app.get("/api/adapter/config")
 def get_adapter_config():
     cfg=setting_map()
