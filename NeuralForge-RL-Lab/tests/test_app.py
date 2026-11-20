@@ -238,6 +238,7 @@ def test_run_fails_if_adapter_does_not_report_real_updates(tmp_path, monkeypatch
 
     monkeypatch.setattr(main, "get_adapter", lambda: BadAdapter())
     with main.connect() as db:
+        db.execute("UPDATE tasks SET expected='reference answer' WHERE id=(SELECT id FROM tasks LIMIT 1)")
         db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
                    ("fake-no-update", "queued", 1, main.now()))
     main.execute_training("fake-no-update", {"episodes": 1, "batch_size": 1})
