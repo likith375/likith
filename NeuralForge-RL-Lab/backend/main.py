@@ -579,6 +579,51 @@ def list_datasets(split: str | None=None, category: str | None=None):
     query+=" ORDER BY created_at DESC LIMIT 2000"
     with connect() as c: return [dict(x) for x in c.execute(query,args)]
 
+@app.get("/api/datasets/stats")
+def dataset_stats():
+    with connect() as c:
+        total=c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0]
+        by_split={row["split"]:row["count"] for row in c.execute(
+            "SELECT split,COUNT(*) AS count FROM datasets GROUP BY split")}
+        by_category=[dict(row) for row in c.execute(
+            "SELECT category,COUNT(*) AS count FROM datasets GROUP BY category ORDER BY count DESC,category")]
+        lengths=c.execute("SELECT MIN(LENGTH(content)),AVG(LENGTH(content)),MAX(LENGTH(content)) FROM datasets").fetchone()
+        duplicates=c.execute("""SELECT COUNT(*) FROM (
+            SELECT content FROM datasets GROUP BY content HAVING COUNT(*)>1)""").fetchone()[0]
+        empty=c.execute("SELECT COUNT(*) FROM datasets WHERE TRIM(content)=''").fetchone()[0]
+    return {"total":total,"by_split":by_split,"by_category":by_category,
+            "content_characters":{"min":lengths[0] or 0,"average":round(lengths[1] or 0,1),"max":lengths[2] or 0},
+            "duplicate_content_groups":duplicates,"empty_examples":empty}
+
+
+@app.get("/api/training/preview")
+def training_preview():
+    cfg=setting_map()
+    with connect() as c:
+        task_count=c.execute("SELECT COUNT(*) FROM tasks WHERE enabled=1").fetchone()[0]
+        split_counts={row["split"]:row["count"] for row in c.execute(
+            "SELECT split,COUNT(*) AS count FROM datasets GROUP BY split")}
+        pending=c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_at IS NULL").fetchone()[0]
+        verified=c.execute("""SELECT COUNT(*) FROM mistakes m WHERE COALESCE(
+            (SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
+             ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'
+            AND COALESCE(NULLIF(m.correction,''), '')<>''""").fetchone()[0]
+        active=c.execute("SELECT id,status FROM runs WHERE status IN ('queued','running') LIMIT 1").fetchone()
+    warnings=[]
+    if not task_count: warnings.append("Create or generate at least one enabled task.")
+    if not split_counts.get("train",0): warnings.append("Import training examples in the train split.")
+    if not (cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip()):
+        warnings.append("Connect a model adapter before training.")
+    if not pending: warnings.append("No human-rated attempts are waiting for reward replay.")
+    if active: warnings.append("A training run is already "+active["status"]+".")
+    return {"ready":not any(message.startswith(("Create","Import","Connect","A training")) for message in warnings),
+            "enabled_tasks":task_count,"dataset_splits":split_counts,
+            "pending_human_feedback":pending,"verified_corrections":verified,
+            "adapter_configured":bool(cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip()),
+            "active_run":dict(active) if active else None,"warnings":warnings,
+            "note":"This is a configuration/data readiness check. It does not load the model or guarantee that training will succeed."}
+
+
 # Safe text-based ingestion for common data, source-code, notebook and document formats.
 DATASET_EXTENSIONS = {
     ".jsonl", ".json", ".csv", ".txt", ".md", ".rst", ".yaml", ".yml", ".toml", ".xml",
