@@ -368,3 +368,23 @@ def test_task_delete_removes_its_attempt_history(tmp_path, monkeypatch):
     assert response.status_code == 200
     with main.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM task_attempts WHERE task_id=?", (task["id"],)).fetchone()[0] == 0
+
+
+def test_openai_and_sharegpt_conversation_dataset_formats():
+    openai_row = main.normalize_dataset_row({
+        "messages": [
+            {"role": "system", "content": "Be concise."},
+            {"role": "user", "content": "What is inertia?"},
+            {"role": "assistant", "content": "Inertia is resistance to changes in motion."}
+        ]
+    }, 0, "physics")
+    sharegpt_row = main.normalize_dataset_row({
+        "conversations": [
+            {"from": "human", "value": "What is 3 times 4?"},
+            {"from": "gpt", "value": "12"}
+        ]
+    }, 1, "mathematics")
+    assert "What is inertia?" in openai_row["prompt"]
+    assert openai_row["content"] == "Inertia is resistance to changes in motion."
+    assert sharegpt_row["prompt"] == "human: What is 3 times 4?"
+    assert sharegpt_row["content"] == "12"
