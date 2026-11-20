@@ -613,3 +613,28 @@ def test_failed_human_feedback_update_stays_pending(tmp_path, monkeypatch):
     main.execute_training("failed-feedback-run", {"episodes": 1, "batch_size": 1})
     assert client.get("/api/runs/failed-feedback-run").json()["status"] == "failed"
     assert len(client.get("/api/feedback?pending_only=true").json()) == 1
+
+
+
+def test_dataset_stats_report_splits_categories_and_duplicates(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("dup-a", "Duplicate A", "physics", "train", "same reference", main.now()))
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("dup-b", "Duplicate B", "physics", "train", "same reference", main.now()))
+    stats = client.get("/api/datasets/stats").json()
+    assert stats["total"] >= 6
+    assert stats["by_split"]["train"] >= 3
+    assert any(x["category"] == "physics" for x in stats["by_category"])
+    assert stats["duplicate_content_groups"] == 1
+    assert stats["content_characters"]["max"] >= len("same reference")
+
+
+def test_training_preview_explains_missing_model_without_loading_it(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    preview = client.get("/api/training/preview").json()
+    assert preview["enabled_tasks"] >= 1
+    assert preview["adapter_configured"] is False
+    assert preview["ready"] is False
+    assert any("Connect a model" in warning for warning in preview["warnings"])
