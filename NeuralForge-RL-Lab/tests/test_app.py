@@ -1310,3 +1310,35 @@ def test_neutral_automatic_reward_skips_reward_hook_and_completes_honestly(tmp_p
     checkpoints = client.get("/api/checkpoints").json()
     assert len(checkpoints) == 1
     assert checkpoints[0]["label"] == "Automatic backup before training run"
+
+
+
+def test_zero_gradient_feedback_is_not_marked_consumed(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    attempt_id = main.record_attempt(task["id"], "", "Original prompt", "Old model answer", {
+        "score": 50, "reward": 0.0, "evaluator": "test", "checks": {}
+    })
+    feedback = client.post(f"/api/attempts/{attempt_id}/feedback", json={
+        "rating": 5, "note": "Please learn from this", "evidence": "Human review"
+    }).json()
+    class NoGradientAdapter:
+        name = "no-gradient-adapter"
+        def generate(self, prompt, context=None): return "A response with no trainable signal."
+        def train_step(self, batch): return {"updates": 0, "loss": 0.0, "note": "No gradient"}
+        def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"snapshot")
+            return {}
+        def load_checkpoint(self, source): return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: NoGradientAdapter())
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("no-gradient-run", "queued", 1, main.now()))
+    main.execute_training("no-gradient-run", {"episodes": 1, "batch_size": 1})
+    run = client.get("/api/runs/no-gradient-run").json()
+    assert run["status"] == "completed"
+    assert run["real_updates"] == 0
+    pending = client.get("/api/feedback?pending_only=true").json()
+    assert any(row["id"] == feedback["id"] for row in pending)
+    assert run["feedback_updates"] == 0
