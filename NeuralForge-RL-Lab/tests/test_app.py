@@ -1116,3 +1116,22 @@ def test_feedback_export_preserves_rating_reward_and_attempt_context(tmp_path, m
     assert exported["reward"] == 1
     assert exported["prompt"] == "Explain energy"
     assert exported["output"] == "Energy is conserved."
+
+
+
+def test_generated_task_does_not_retrieve_its_own_reference_answer(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("DELETE FROM datasets")
+        db.execute("""INSERT INTO datasets
+          (id,name,category,split,content,created_at)
+          VALUES(?,?,?,?,?,?)""",
+          ("only-source", "What is inertia?", "physics", "train",
+           "INERTIA_SECRET_REFERENCE_12345", main.now()))
+    generated = client.post("/api/tasks/generate-from-dataset?limit=10").json()
+    assert generated["created"] == 1
+    task = next(x for x in client.get("/api/tasks").json()
+                if x["title"] == "Practice: What is inertia?")
+    assert task["source_dataset_id"] == "only-source"
+    prompt = main.build_prompt(task)
+    assert "INERTIA_SECRET_REFERENCE_12345" not in prompt
