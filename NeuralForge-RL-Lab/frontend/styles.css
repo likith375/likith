@@ -7,3 +7,6 @@
 .review-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0}.review-fields textarea{min-height:75px}.review-fields label{font-size:11px;color:var(--muted)}@media(max-width:600px){.review-fields{grid-template-columns:1fr}}
 
 .state.interrupted{color:#e6c58a;border-color:#6a5834}
+
+
+.feedback-card{margin-bottom:14px}.feedback-card .feedback-form{border-top:1px solid var(--line);margin-top:16px;padding-top:14px}.feedback-card .feedback-form .form-grid{margin:0}.feedback-card details{margin:12px 0}.feedback-card details pre{max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}.feedback-card .run-metrics{margin:12px 0}
