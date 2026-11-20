@@ -39,6 +39,8 @@ Keep train, validation and test examples distinct. Do not train on test examples
 
 ## Evaluation contract
 
+Samples with a neutral reward of exactly zero are recorded for metrics but skipped by the reward-learning hook; supervised updates can still run on reference examples. This avoids treating a zero-advantage batch as a failed optimizer step.
+
 The built-in evaluator is deliberately domain-neutral. It checks basic text properties such as non-empty output, placeholder markers, delimiter balance, and optional reference matching. If no expected reference is supplied, it returns a neutral score of 50 and reward 0 rather than claiming success. With an expected reference, exact reference matching is required for a high score. It is a **text heuristic**, not a fact checker, code parser, type checker, or runtime test. It can be gamed by outputting plausible-looking text. Treat it as a smoke test only.
 
 For stronger evaluation, a trusted adapter may implement `evaluate(prompt, output, expected, domain)` and return a dictionary with `score` from 0 to 100 and `reward` from -1 to 1, plus optional `checks`, `evaluator`, and `warning` fields. This allows different evaluators for Python, mathematics, science, writing, engineering, and other subjects. Keep evaluation deterministic where possible, document its evidence, and never execute untrusted code in the API process.
