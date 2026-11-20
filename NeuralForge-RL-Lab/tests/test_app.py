@@ -1515,3 +1515,21 @@ def test_dataset_import_serializes_spreadsheet_datetime_metadata():
     ], "history", "events.xlsx")
     metadata = json.loads(prepared[0][5])
     assert metadata["row_metadata"]["date"] == "2025-01-02 03:04:05"
+
+
+
+def test_office_document_parser_rejects_suspicious_zip_compression():
+    import io
+    import zipfile
+    import pytest
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("word/document.xml", "A" * (2 * 1024 * 1024))
+    with pytest.raises(ValueError, match="compression ratio"):
+        main.validate_ooxml_archive(stream.getvalue())
+
+
+def test_office_document_parser_rejects_invalid_zip_container():
+    import pytest
+    with pytest.raises(ValueError, match="valid ZIP-based"):
+        main.validate_ooxml_archive(b"not an office document")
