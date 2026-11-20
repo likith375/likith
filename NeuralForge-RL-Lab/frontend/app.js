@@ -83,7 +83,7 @@ async function trainingPreview(){
  try{
   const r=await api("/api/training/preview");
   const splits=r.dataset_splits||{};
-  box.innerHTML='<div class="row-between"><b class="state '+(r.ready?'completed':'interrupted')+'">'+(r.ready?'Ready to start':'Setup required')+'</b><small>'+r.enabled_tasks+' enabled tasks</small></div><p class="muted">Dataset splits · Train '+(splits.train||0)+' · Validation '+(splits.validation||0)+' · Test '+(splits.test||0)+'</p><p class="muted">Verified corrections · '+r.verified_corrections+' · Pending human ratings · '+r.pending_human_feedback+'</p>'+(r.warnings.length?'<ul>'+r.warnings.map(w=>'<li>'+esc(w)+'</li>').join("")+'</ul>':'<p>Required setup checks passed.</p>')+'<small>'+esc(r.note)+'</small>';
+  box.innerHTML='<div class="row-between"><b class="state '+(r.ready?'completed':'interrupted')+'">'+(r.ready?'Ready to start':'Setup required')+'</b><small>'+r.enabled_tasks+' enabled tasks</small></div><p class="muted">Dataset splits · Train '+(splits.train||0)+' · Validation '+(splits.validation||0)+' · Test '+(splits.test||0)+'</p><p class="muted">Verified corrections · '+r.verified_corrections+' · Pending human ratings · '+r.pending_human_feedback+' · Invalid generated tasks · '+(r.orphaned_generated_tasks||0)+'</p>'+(r.warnings.length?'<ul>'+r.warnings.map(w=>'<li>'+esc(w)+'</li>').join("")+'</ul>':'<p>Required setup checks passed.</p>')+'<small>'+esc(r.note)+'</small>';
  }catch(x){box.textContent="Preflight failed: "+x.message}
 }
 $("#training-preflight").onclick=trainingPreview;
