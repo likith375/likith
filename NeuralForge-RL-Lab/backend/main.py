@@ -559,13 +559,15 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
         document = Document(io.BytesIO(raw))
         paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
         for table_index, table in enumerate(document.tables, 1):
-            paragraphs.append("\n[Table  + str(table_index) + "]\\n" + "\n".join(" | ".join(cell.text for cell in row.cells) for row in table.rows))
+            table_text = "\\n[Table " + str(table_index) + "]\\n"
+            table_text += "\\n".join(" | ".join(cell.text for cell in row.cells) for row in table.rows)
+            paragraphs.append(table_text)
         content = "\\n\\n".join(paragraphs).strip()
         if not content:
             raise ValueError("No readable text was found in this DOCX file.")
-        return [{"prompt": f"Reference material: {Path(filename).name} part {i}",
+        return [{"prompt": f"Reference material: {Path(filename).name}",
                  "content": chunk, "category": "document", "split": "train"}
-                for i,chunk in enumerate(chunk_reference_text(content),1)]
+                for chunk in chunk_reference_text(content)]
     decoded = raw.decode("utf-8-sig")
     if suffix == ".jsonl":
         return [json.loads(line) for line in decoded.splitlines() if line.strip()]
