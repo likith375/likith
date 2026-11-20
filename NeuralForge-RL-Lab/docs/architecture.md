@@ -4,25 +4,25 @@
 
 - **Dashboard:** static HTML/CSS/JavaScript. It calls the FastAPI JSON API.
 - **API and orchestration:** `backend/main.py` handles imports, task management, evaluation, review events, training runs and checkpoints.
-- **Persistence:** SQLite stores datasets, tasks, mistake records, review events, runs, benchmark results, adapter settings and checkpoint metadata. A JSONL audit file is appended under `data/mistakes/`.
+- **Persistence:** SQLite stores datasets, tasks, mistake records, review events, runs, benchmark results, immutable task attempts, adapter settings and checkpoint metadata. A JSONL audit file is appended under `data/mistakes/`.
 - **Adapter boundary:** the lab calls a model through a small Python interface. The model itself remains yours.
-- **Optional HF adapter:** `backend/hf_adapter.py` loads a local Transformers causal language model and performs a REINFORCE-style update.
+- **Optional HF adapter:** `backend/hf_adapter.py` loads a local Transformers causal language model, applies LoRA by default, performs supervised reference updates and REINFORCE-style reward updates.
 
 ## Data flow
 
 ```mermaid
 flowchart TD
-  A[Luau datasets] --> B[Task studio]
+  A[Subject datasets] --> B[Task studio]
   B --> C[Prompt builder]
   D[Verified mistake corrections] --> C
   C --> E[Model adapter]
   E --> F[Generated Luau]
-  F --> G[Static evaluator]
-  G --> H[Reward]
+  F --> G[Domain evaluator]
+  G --> H[Reward and attempt record]
   G --> I[Append-only mistake record]
   I --> J[Human review event]
   J --> D
-  H --> K[Adapter train_step]
+  H --> K[Adaptive curriculum + adapter train_step]
   K --> L[Updated model weights]
   L --> M[Checkpoint manager]
   N[Validation / test split] --> O[Benchmark runner]
@@ -36,6 +36,7 @@ flowchart TD
 - Mistake attempts are immutable. Review decisions are separate append-only events.
 - A correction is included in future prompts only when its latest review event is `verified`.
 - Training runs record status, episode count, average reward, success heuristic rate, update count and average loss.
+- Every task attempt is stored with its evaluator score and reward. Recent task scores adjust curriculum selection weights.
 - A checkpoint is labelled `model_weights` only when the adapter actually saves weights. Otherwise it is marked `metadata_only`.
 
 ## Adapter contract
