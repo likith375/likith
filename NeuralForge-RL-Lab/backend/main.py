@@ -1127,7 +1127,21 @@ def toggle_task(task_id:str, enabled:bool):
 
 @app.post("/api/evaluate")
 def evaluate(payload:dict):
-    return static_evaluate(str(payload.get("output","")),str(payload.get("expected","")))
+    output=str(payload.get("output",""))
+    expected=str(payload.get("expected",""))
+    prompt=str(payload.get("prompt",""))
+    domain=str(payload.get("domain",payload.get("category","general")))
+    cfg=setting_map()
+    if cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip():
+        try:
+            adapter=get_adapter()
+            with MODEL_EXECUTION_LOCK:
+                return evaluate_with_adapter(adapter,prompt,output,expected,domain)
+        except Exception as exc:
+            raise HTTPException(400,f"Evaluation failed: {type(exc).__name__}: {exc}")
+    if domain.strip().lower() in {"python","py","python3"}:
+        return evaluate_python_static(output,expected)
+    return static_evaluate(output,expected,domain)
 
 @app.get("/api/mistakes")
 def list_mistakes(verification:str | None=None):
