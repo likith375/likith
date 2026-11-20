@@ -35,6 +35,7 @@ _adapter_lock = threading.RLock()
 _adapter_instance = None
 _adapter_fingerprint = None
 _adapter_error = None
+RUN_SCHEDULER_LOCK = threading.Lock()
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -637,9 +638,13 @@ def adapter_status():
 @app.post("/api/runs/start")
 def start_run(request:RunIn, background:BackgroundTasks):
     rid=str(uuid.uuid4())
-    with connect() as c:
-        c.execute("INSERT INTO runs(id,status,episodes,reward,success_rate,real_updates,notes,created_at,duration_hours) VALUES(?,?,?,?,?,?,?,?,?)",
-                  (rid,"queued",request.episodes,0,0,0,"Queued; imported train-split examples and reward feedback will be used when supported by the adapter.",now(),request.duration_hours))
+    with RUN_SCHEDULER_LOCK:
+        with connect() as c:
+            active=c.execute("SELECT id,status FROM runs WHERE status IN ('queued','running') LIMIT 1").fetchone()
+            if active:
+                raise HTTPException(409,f"Training run {active['id']} is already {active['status']}. Stop or finish it before starting another.")
+            c.execute("INSERT INTO runs(id,status,episodes,reward,success_rate,real_updates,notes,created_at,duration_hours) VALUES(?,?,?,?,?,?,?,?,?)",
+                      (rid,"queued",request.episodes,0,0,0,"Queued; imported train-split examples and reward feedback will be used when supported by the adapter.",now(),request.duration_hours))
     background.add_task(execute_training,rid,request.model_dump())
     return {"id":rid,"status":"queued","episodes":request.episodes,"duration_hours":request.duration_hours,"message":"Training run queued. Poll /api/runs for status."}
 
