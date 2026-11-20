@@ -207,10 +207,9 @@ def get_adapter(force_reload=False):
             if not sep:
                 raise ValueError("Adapter spec must look like package.module:factory")
             factory = getattr(importlib.import_module(module_name), factory_name)
-            try:
-                adapter = factory({"model_path":model_path, **cfg})
-            except TypeError:
-                adapter = factory()
+            # Adapter factories have one explicit contract: accept the settings dictionary.
+            # Do not catch TypeError here; it may be a real bug inside the adapter constructor. 
+            adapter = factory({"model_path":model_path, **cfg})
             for method in ("generate","train_step","save_checkpoint","load_checkpoint"):
                 if not callable(getattr(adapter,method,None)):
                     raise TypeError(f"Adapter is missing required method: {method}")
@@ -290,7 +289,7 @@ def validate_update_result(result: Any, operation: str) -> tuple[int, float | No
     if not isinstance(result, dict):
         raise TypeError(f"{operation} must return a dictionary containing an explicit updates count.")
     updates = result.get("updates")
-    if not isinstance(updates, int) or updates < 0:
+    if type(updates) is not int or updates < 0:
         raise ValueError(f"{operation} must return a non-negative integer updates field.")
     if operation == "train_step" and updates < 1:
         raise RuntimeError("The adapter reported zero reward-learning updates; the run cannot claim learning.")
