@@ -366,12 +366,15 @@ def verified_examples(limit=6, category: str | None=None):
     return [{"prompt":r["prompt"],"correction":r["correction"],"category":r["domain"]} for r in rows[:limit]]
 
 
-def dataset_examples(category="general", prompt: str="", limit=4, exclude_id: str | None=None):
+def dataset_examples(category="general", prompt: str="", limit=4, exclude_id: str | None=None,
+                     exclude_content: str | None=None):
     with connect() as c:
         query="""SELECT id,name,category,content,created_at FROM datasets WHERE split='train'"""
         args=[]
         if exclude_id:
             query+=" AND id<>?"; args.append(exclude_id)
+        if exclude_content:
+            query+=" AND content<>?"; args.append(exclude_content)
         query+=" ORDER BY created_at DESC LIMIT 1000"
         rows=c.execute(query,args).fetchall()
     query_terms=retrieval_terms(str(category)+" "+str(prompt))
@@ -393,7 +396,9 @@ def dataset_examples(category="general", prompt: str="", limit=4, exclude_id: st
 def build_prompt(task):
     domain = task.get("domain") or task.get("category") or "general"
     verified = verified_examples(category=domain)
-    references = dataset_examples(domain, task.get("prompt",""), exclude_id=task.get("source_dataset_id") or None)
+    references = dataset_examples(domain, task.get("prompt",""),
+                                  exclude_id=task.get("source_dataset_id") or None,
+                                  exclude_content=task.get("expected") or None)
     parts=[task["prompt"], "\n\nWork in the subject/domain: " + str(domain) + ". Use supplied context only when relevant. Follow the requested output format, state assumptions, and do not invent facts."]
     if references:
         parts.append("\n\nRelevant reference examples from uploaded training material:")
