@@ -1563,7 +1563,8 @@ def test_start_training_runs_after_preflight_passes(tmp_path, monkeypatch):
         def load_checkpoint(self, source): return {}
     monkeypatch.setattr(main, "get_adapter", lambda: ReadyAdapter())
     with main.connect() as db:
-        db.execute("INSERT INTO adapter_settings(key,value,updated_at) VALUES(?,?,?)",
+        db.execute("""INSERT INTO adapter_settings(key,value,updated_at) VALUES(?,?,?)
+                   ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at""",
                    ("adapter_spec", "adapters.custom_adapter:load_adapter", main.now()))
     response = client.post("/api/runs/start", json={
         "episodes": 1, "batch_size": 1, "duration_hours": 0
