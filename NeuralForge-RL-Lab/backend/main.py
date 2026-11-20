@@ -4,7 +4,7 @@ Generated Luau is never executed by this server. Evaluation is static unless a
 future, explicitly sandboxed evaluator is configured by the owner.
 """
 from __future__ import annotations
-import csv, hashlib, importlib, io, json, os, sqlite3, threading, time, uuid
+import ast, csv, hashlib, importlib, io, json, os, re, sqlite3, threading, time, uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -225,10 +225,39 @@ def static_evaluate(output: str, expected: str = "", domain: str = "general") ->
             "expected_match":expected_match,
             "warning":"Generic static heuristic only. It does not execute code or prove code/factual correctness."}
 
+def evaluate_python_static(output: str, expected: str = "") -> dict[str, Any]:
+    """Check Python syntax without executing generated code."""
+    result = static_evaluate(output, expected, "python")
+    text = (output or "").strip()
+    fences = re.findall(r"```(?:python|py)?\\s*([\\s\\S]*?)```", text, flags=re.IGNORECASE)
+    candidate = fences[0].strip() if fences else text
+    looks_like_code = bool(re.search(
+        r"(?m)^\\s*(async\\s+def|def|class|from|import|@)|\\b(print|return|yield)\\s*\\(",
+        candidate
+    ))
+    if not looks_like_code:
+        return result
+    try:
+        ast.parse(candidate)
+        result["checks"]["python_syntax_valid"] = True
+        result["evaluator"] = "python_ast_static"
+        result["warning"] = "Python AST syntax check only; code was not executed and correctness is not proven."
+    except SyntaxError as exc:
+        result["checks"]["python_syntax_valid"] = False
+        result["syntax_error"] = {"line": exc.lineno, "column": exc.offset, "message": exc.msg}
+        result["score"] = min(float(result["score"]), 25.0)
+        result["reward"] = round((result["score"] / 50.0) - 1.0, 4)
+        result["evaluator"] = "python_ast_static"
+        result["warning"] = "Python syntax error detected by AST parsing; code was not executed."
+    return result
+
+
 def evaluate_with_adapter(adapter, prompt: str, output: str, expected: str = "", domain: str = "general") -> dict[str, Any]:
     """Use an adapter's domain-specific evaluator when supplied; otherwise be explicit about heuristic limits."""
     evaluator = getattr(adapter, "evaluate", None)
     if not callable(evaluator):
+        if str(domain).strip().lower() in {"python", "py", "python3"}:
+            return evaluate_python_static(output, expected)
         return static_evaluate(output, expected, domain)
     result = evaluator(prompt, output, expected, domain)
     if not isinstance(result, dict):
