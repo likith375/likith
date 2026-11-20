@@ -322,7 +322,9 @@ def overview():
         return {"datasets":c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0],
                 "tasks":c.execute("SELECT COUNT(*) FROM tasks WHERE enabled=1").fetchone()[0],
                 "mistakes":c.execute("SELECT COUNT(*) FROM mistakes").fetchone()[0],
-                "verified":c.execute("SELECT COUNT(*) FROM mistakes WHERE verification='verified'").fetchone()[0],
+                "verified":c.execute("""SELECT COUNT(*) FROM mistakes m WHERE COALESCE(
+                  (SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
+                   ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'""").fetchone()[0],
                 "runs":c.execute("SELECT COUNT(*) FROM runs").fetchone()[0],
                 "completed_runs":c.execute("SELECT COUNT(*) FROM runs WHERE status='completed'").fetchone()[0]}
 
@@ -372,7 +374,7 @@ def import_inbox_folder():
     allowed={".jsonl",".json",".csv",".lua",".luau",".txt",".md"}
     added=0; skipped=[]; scanned=0
     for path in sorted(DATA_INBOX.iterdir()):
-        if not path.is_file() or path.name.lower()=="readme.md" or path.suffix.lower() not in allowed:
+        if path.is_symlink() or not path.is_file() or path.name.lower()=="readme.md" or path.suffix.lower() not in allowed:
             continue
         scanned+=1
         raw=path.read_bytes()
