@@ -136,7 +136,7 @@ def init_db():
         c.execute("UPDATE runs SET status='interrupted',finished_at=?,error=COALESCE(error,'Server restarted before this run finished.'),notes='Run interrupted by server restart; review checkpoint and resume with a new run.' WHERE status IN ('queued','running')",(now(),))
         if c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0] == 0:
             seed = [
-              ("Python example","programming","def add(a, b):\n    return a + b","train"),
+              ("Python example","python","def add(a, b):\n    return a + b","train"),
               ("Science example","science","Photosynthesis converts light energy into chemical energy.","train"),
               ("Mathematics example","mathematics","The area of a rectangle is length multiplied by width.","validation"),
               ("Writing example","writing","A clear paragraph begins with a focused topic sentence.","test"),
