@@ -140,3 +140,5 @@ A rating maps to reward `(rating - 3) / 2`. Ratings are not marked consumed unle
 - `POST /api/checkpoints` saves a real model snapshot.
 - `POST /api/checkpoints/{checkpoint_id}/restore` first saves a safety copy of the current model and attempts rollback if the selected checkpoint cannot load.
 - `DELETE /api/checkpoints/{checkpoint_id}` removes the checkpoint record and its files, but only when the resolved path is inside the configured checkpoint directory.
+
+The append-only mistake review history can be exported separately with `GET /api/mistakes/events/export`; it includes review actions, evidence, corrections and the original attempt context.
