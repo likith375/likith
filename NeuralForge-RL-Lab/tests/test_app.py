@@ -1204,3 +1204,18 @@ def test_training_preview_warns_about_duplicate_split_leakage(tmp_path, monkeypa
                    ("leak-test", "Test copy", "science", "test", "same exact answer", main.now()))
     preview = client.get("/api/training/preview").json()
     assert any("benchmark leakage is possible" in warning for warning in preview["warnings"])
+
+
+
+def test_dataset_split_update_can_resolve_exact_duplicate_leakage(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("split-train", "Train", "science", "train", "same content", main.now()))
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("split-test", "Test", "science", "test", "same content", main.now()))
+    conflict = client.patch("/api/datasets/split-test/split", json={"split": "validation"})
+    assert conflict.status_code == 409
+    fixed = client.patch("/api/datasets/split-test/split", json={"split": "train"})
+    assert fixed.status_code == 200
+    assert client.get("/api/datasets/stats").json()["duplicate_split_conflicts"] == 0
