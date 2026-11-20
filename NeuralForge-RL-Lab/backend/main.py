@@ -161,22 +161,22 @@ class TaskIn(BaseModel):
     title: str = Field(min_length=1, max_length=180)
     prompt: str = Field(min_length=1, max_length=12000)
     expected: str = Field(default="", max_length=20000)
-    difficulty: str = "easy"
-    category: str = "general"
+    difficulty: str = Field(default="easy", max_length=40)
+    category: str = Field(default="general", max_length=80)
 
 class MistakeIn(BaseModel):
-    task_id: str = ""
-    prompt: str
-    output: str
-    category: str = "failed_tasks"
-    evidence: str = ""
-    correction: str = ""
+    task_id: str = Field(default="", max_length=80)
+    prompt: str = Field(min_length=1, max_length=12000)
+    output: str = Field(min_length=1, max_length=30000)
+    category: str = Field(default="failed_tasks", max_length=80)
+    evidence: str = Field(default="", max_length=4000)
+    correction: str = Field(default="", max_length=20000)
 
 class ReviewIn(BaseModel):
-    verification: str
-    note: str = ""
-    correction: str = ""
-    evidence: str = ""
+    verification: str = Field(min_length=1, max_length=40)
+    note: str = Field(default="", max_length=4000)
+    correction: str = Field(default="", max_length=20000)
+    evidence: str = Field(default="", max_length=4000)
 
 class RunIn(BaseModel):
     episodes: int = Field(default=5000, ge=1, le=1000000)
@@ -184,14 +184,14 @@ class RunIn(BaseModel):
     duration_hours: float = Field(default=0, ge=0, le=24)
 
 class FeedbackIn(BaseModel):
-    rating: int = Field(ge=1, le=5)
+    rating: int = Field(ge=1, le=5, strict=True)
     note: str = Field(default="", max_length=4000)
     correction: str = Field(default="", max_length=20000)
     evidence: str = Field(default="", max_length=4000)
 
 class AdapterConfig(BaseModel):
-    adapter_spec: str = ""
-    model_path: str = ""
+    adapter_spec: str = Field(default="", max_length=300)
+    model_path: str = Field(default="", max_length=1000)
     max_new_tokens: int = Field(default=384, ge=16, le=4096)
     learning_rate: float = Field(default=0.00001, gt=0, le=0.1)
     batch_size: int = Field(default=2, ge=1, le=32)
