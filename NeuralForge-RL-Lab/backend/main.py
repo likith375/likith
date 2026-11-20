@@ -5,6 +5,7 @@ future, explicitly sandboxed evaluator is configured by the owner.
 """
 from __future__ import annotations
 import csv, hashlib, importlib, io, json, os, sqlite3, threading, time, uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -45,12 +46,20 @@ def append_mistake_log(event: str, payload: dict[str, Any]):
         with MISTAKE_LOG.open("a",encoding="utf-8") as handle:
             handle.write(json.dumps(record,ensure_ascii=False)+"\n")
 
+@contextmanager
 def connect():
     c = sqlite3.connect(DB, timeout=30)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA foreign_keys=ON")
-    return c
+    try:
+        yield c
+        c.commit()
+    except Exception:
+        c.rollback()
+        raise
+    finally:
+        c.close()
 
 def columns(c, table):
     return {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
