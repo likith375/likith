@@ -20,7 +20,8 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a m
 - Dedicated `data/mistakes/mistakes.jsonl` append-only audit log.
 - Held-out validation and test benchmarks with stored per-example results.
 - A model-adapter contract for your own scratch-built Python AI.
-- An optional Hugging Face causal-LM adapter with REINFORCE-style policy-gradient updates.
+- An optional Hugging Face causal-LM adapter with LoRA-first parameter-efficient tuning, supervised updates, and REINFORCE-style policy-gradient updates.
+- Immutable per-task attempt history and an adaptive curriculum that prioritizes less-mastered tasks.
 - Model checkpoint save and restore through the adapter.
 - API documentation at `/docs`.
 - Automated tests and GitHub Actions workflow.
@@ -87,7 +88,7 @@ Download or prepare a **local** causal language model directory that is compatib
 - Adapter module: `backend.hf_adapter:load_adapter`
 - Local model folder: path to your local model directory
 
-The built-in adapter uses sampled response tokens and a REINFORCE-style reward objective, independent of any single programming language. It is an experimental baseline for learning workflows, not a state-of-the-art coding model. It does not download model weights or call paid APIs.
+The built-in adapter uses LoRA by default (configurable rank, alpha, dropout and target modules) to tune a small fraction of model parameters; disable it only when you intentionally want full fine-tuning and have enough memory. It combines supervised reference learning with sampled-response REINFORCE updates, independent of any single programming language. It is an experimental baseline for learning workflows, not a state-of-the-art coding model. It does not download model weights or call paid APIs.
 
 ## Supported upload formats
 
@@ -97,11 +98,11 @@ JSONL is recommended. Each line is one JSON object:
 {"prompt":"Create a part","category":"instances","content":"local part = Instance.new(\"Part\")","split":"train"}
 ```
 
-Accepted content fields: `content`, `code`, `completion`, `output`, or `text`. Plain-text source and documentation files are imported as reference examples; Jupyter notebooks are split into cells. PDF files import selectable text page by page (scanned-image OCR is not included); DOCX imports paragraphs and tables.
+Accepted content fields: `content`, `code`, `completion`, `output`, `response`, `answer`, `target`, `assistant`, or `text`. Prompt aliases include `prompt`, `instruction`, `question`, `input`, `user`, `title`, and `name`. OpenAI `messages` and ShareGPT `conversations` rows are also normalized. Plain-text source and documentation files are imported as reference examples; Jupyter notebooks are split into cells. PDF files import selectable text page by page (scanned-image OCR is not included); DOCX imports paragraphs and tables.
 
 Accepted prompt fields: `prompt`, `instruction`, or `title`.
 
-If `split` is omitted, the importer assigns most examples to train and periodically assigns validation/test rows. For serious experiments, provide your own splits and keep near-duplicate examples in the same split to avoid leakage.
+If `split` is omitted, structured datasets are split across train/validation/test rows. A single document is kept entirely in train to prevent its chunks leaking into validation/test. Long prose documents are chunked on paragraph boundaries. For serious experiments, provide your own splits and keep near-duplicate examples in the same split to avoid leakage.
 
 The optional Luau starter corpus remains available as one subject-specific example; it is not required for other subjects.
 
