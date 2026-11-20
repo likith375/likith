@@ -638,3 +638,40 @@ def test_training_preview_explains_missing_model_without_loading_it(tmp_path, mo
     assert preview["adapter_configured"] is False
     assert preview["ready"] is False
     assert any("Connect a model" in warning for warning in preview["warnings"])
+
+
+
+def test_verified_mistake_corrections_are_reused_for_supervised_training(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    correction = "A correct explanation reviewed against the official reference."
+    mistake = client.post("/api/mistakes", json={
+        "task_id": task["id"], "prompt": "Explain the concept",
+        "output": "Incorrect explanation", "correction": correction,
+        "evidence": "Checked against official reference"
+    }).json()
+    reviewed = client.patch(f"/api/mistakes/{mistake['id']}", json={
+        "verification": "verified", "correction": correction,
+        "evidence": "Checked against official reference"
+    })
+    assert reviewed.status_code == 200
+    class CorrectionAdapter:
+        name = "verified-correction-test"
+        def __init__(self): self.supervised = []
+        def generate(self, prompt, context=None): return "Generated answer."
+        def supervised_step(self, batch):
+            self.supervised.extend(batch)
+            return {"updates": 1, "loss": 0.2}
+        def train_step(self, batch): return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            return {}
+        def load_checkpoint(self, source): return {}
+    adapter = CorrectionAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("verified-correction-run", "queued", 1, main.now()))
+    main.execute_training("verified-correction-run", {"episodes": 1, "batch_size": 32})
+    assert client.get("/api/runs/verified-correction-run").json()["status"] == "completed"
+    assert any(row["content"] == correction for row in adapter.supervised)
