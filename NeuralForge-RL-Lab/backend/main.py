@@ -1117,11 +1117,15 @@ def get_adapter_config():
 def set_adapter_config(config:AdapterConfig):
     global _adapter_instance, _adapter_fingerprint
     values=config.model_dump()
-    with connect() as c:
-        for k,v in values.items():
-            c.execute("INSERT INTO adapter_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
-                      (k,str(v),now()))
-    with _adapter_lock: _adapter_instance=None; _adapter_fingerprint=None
+    with RUN_SCHEDULER_LOCK:
+        with connect() as c:
+            active=c.execute("SELECT id,status FROM runs WHERE status IN ('queued','running') LIMIT 1").fetchone()
+            if active:
+                raise HTTPException(409,"Model configuration cannot change while a training run is active.")
+            for k,v in values.items():
+                c.execute("INSERT INTO adapter_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                          (k,str(v),now()))
+        with _adapter_lock: _adapter_instance=None; _adapter_fingerprint=None
     return {"saved":True,"restart_required":False,"message":"Configuration saved. The adapter loads when a training run starts."}
 
 @app.get("/api/adapter/status")
