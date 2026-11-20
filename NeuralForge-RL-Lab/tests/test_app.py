@@ -86,3 +86,57 @@ def test_generate_tasks_from_train_split(tmp_path, monkeypatch):
     result = response.json()
     assert result["created"] >= 1
     assert any(t["title"].startswith("Practice:") for t in client.get("/api/tasks").json())
+
+def test_training_uses_supervised_and_reward_updates(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class FakeAdapter:
+        name = "test-adapter"
+        def __init__(self):
+            self.sft = 0
+            self.rl = 0
+        def generate(self, prompt, context=None):
+            return "local health = 100"
+        def supervised_step(self, batch):
+            self.sft += 1
+            assert batch
+            return {"updates": 1, "loss": 0.2}
+        def train_step(self, batch):
+            self.rl += 1
+            assert batch and "reward" in batch[0]
+            return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination):
+            return {"saved": destination}
+        def load_checkpoint(self, source):
+            return {"loaded": source}
+    adapter = FakeAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("fake-run", "queued", 2, main.now()))
+    main.execute_training("fake-run", {"episodes": 2, "batch_size": 2, "duration_hours": 0})
+    run = client.get("/api/runs/fake-run").json()
+    assert run["status"] == "completed"
+    assert run["episodes_completed"] == 2
+    assert run["real_updates"] == 2
+    assert adapter.sft == 1 and adapter.rl == 1
+
+def test_validation_benchmark_never_calls_train_step(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class FakeAdapter:
+        name = "benchmark-test-adapter"
+        def generate(self, prompt, context=None):
+            return 'local part = Instance.new("Part")'
+        def train_step(self, batch):
+            raise AssertionError("Benchmark must not train")
+        def save_checkpoint(self, destination):
+            return {}
+        def load_checkpoint(self, source):
+            return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: FakeAdapter())
+    with main.connect() as db:
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("val-1","Create a part","instances","validation",'local part = Instance.new("Part")',main.now()))
+    response = client.post("/api/benchmarks/run?split=validation")
+    assert response.status_code == 200
+    assert response.json()["average_score"] == 100
+    assert client.get("/api/benchmarks").json()[0]["split"] == "validation"
