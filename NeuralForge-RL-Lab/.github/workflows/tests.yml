@@ -1,0 +1,21 @@
+name: NeuralForge tests
+on:
+  push:
+    paths:
+      - "NeuralForge-RL-Lab/**"
+  pull_request:
+    paths:
+      - "NeuralForge-RL-Lab/**"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: NeuralForge-RL-Lab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -q
