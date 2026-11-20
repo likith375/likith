@@ -474,19 +474,20 @@ TEXT_EXTENSIONS = DATASET_EXTENSIONS - {".jsonl", ".json", ".csv", ".ipynb"}
 
 def chunk_reference_text(text: str, max_chars: int = 3200) -> list[str]:
     """Split prose on paragraph boundaries so long documents fit model context."""
-    paragraphs=[part.strip() for part in re.split(r"\\n\\s*\\n", text or "") if part.strip()]
+    paragraphs=[part.strip() for part in re.split(r"\n\s*\n", text or "") if part.strip()]
     chunks=[]; current=""
     for paragraph in paragraphs:
         if len(paragraph)>max_chars:
             if current:
                 chunks.append(current); current=""
-            lines=paragraph.splitlines()
-            piece=""
-            for line in lines:
-                if piece and len(piece)+len(line)+1>max_chars:
-                    chunks.append(piece); piece=""
-                piece=(piece+"\\n"+line).strip()
-            if piece: chunks.append(piece)
+            remaining=paragraph
+            while remaining:
+                if len(remaining)<=max_chars:
+                    chunks.append(remaining.strip()); break
+                boundary=remaining.rfind(" ",0,max_chars)
+                if boundary<max_chars//2: boundary=max_chars
+                chunks.append(remaining[:boundary].strip())
+                remaining=remaining[boundary:].strip()
             continue
         candidate=(current+"\\n\\n"+paragraph).strip() if current else paragraph
         if len(candidate)>max_chars and current:
@@ -587,9 +588,9 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
     if suffix in TEXT_EXTENSIONS:
         is_document=suffix in {".txt",".md",".rst",".pdf",".docx",".html",".htm",".xml"}
         chunks=chunk_reference_text(decoded) if is_document else [decoded]
-        return [{"prompt": f"Reference material: {Path(filename).name} part {i}",
+        return [{"prompt": f"Reference material: {Path(filename).name}",
                  "content": chunk, "category": suffix.lstrip(".") or "general", "split":"train"}
-                for i,chunk in enumerate(chunks,1)]
+                for chunk in chunks]
     raise ValueError("Unsupported or binary file type.")
 
 @app.post("/api/datasets/import")
@@ -638,6 +639,9 @@ def import_inbox_folder():
         except Exception as exc:
             skipped.append({"file":path.name,"reason":f"parse error: {exc}"})
             continue
+        for row in rows:
+            if isinstance(row,dict) and str(row.get("prompt","")).startswith("Reference material: "):
+                row["prompt"]="Reference file: "+path.name
         is_document=path.suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".html",".htm",".xml"}
         prepared=prepared_dataset_rows(rows,path.suffix.lower().lstrip("."),source_name,digest,document_chunks=is_document)
         with connect() as c:
