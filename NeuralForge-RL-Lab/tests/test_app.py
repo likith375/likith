@@ -999,4 +999,31 @@ def test_training_time_budget_marks_run_stopped(tmp_path, monkeypatch):
     run = client.get("/api/runs/time-budget-run").json()
     assert run["status"] == "stopped"
     assert run["episodes_completed"] == 0
-    assert "Time budget reached" in run["notes"]
+    assert "Time budget expired before the first training batch" in run["notes"]
+
+
+
+def test_stop_requested_before_worker_starts_prevents_model_updates(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class StopBeforeStartAdapter:
+        name = "stop-before-start"
+        def __init__(self): self.reward_calls = 0
+        def generate(self, prompt, context=None): raise AssertionError("Generation must not start")
+        def train_step(self, batch):
+            self.reward_calls += 1
+            return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"test weights")
+            return {}
+        def load_checkpoint(self, source): return {}
+    adapter = StopBeforeStartAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,stop_requested,created_at) VALUES(?,?,?,?,?)",
+                   ("pre-stopped-run", "queued", 10, 1, main.now()))
+    main.execute_training("pre-stopped-run", {"episodes": 10, "batch_size": 1})
+    run = client.get("/api/runs/pre-stopped-run").json()
+    assert run["status"] == "stopped"
+    assert run["real_updates"] == 0
+    assert adapter.reward_calls == 0
