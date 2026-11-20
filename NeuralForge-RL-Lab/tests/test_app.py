@@ -556,7 +556,10 @@ def test_training_consumes_human_ratings_only_after_real_update(tmp_path, monkey
         db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
                    ("feedback-run", "queued", 1, main.now()))
     main.execute_training("feedback-run", {"episodes": 1, "batch_size": 1})
-    assert client.get("/api/runs/feedback-run").json()["status"] == "completed"
+    completed_run = client.get("/api/runs/feedback-run").json()
+    assert completed_run["status"] == "completed"
+    assert completed_run["human_feedback_examples"] == 1
+    assert completed_run["feedback_updates"] == 1
     assert any(batch[0].get("task_id") == task["id"] and batch[0]["reward"] == -1
                for batch in adapter.batches)
     assert client.get("/api/feedback?pending_only=true").json() == []
@@ -585,3 +588,28 @@ def test_deleting_task_keeps_human_feedback_history(tmp_path, monkeypatch):
     assert deleted.json()["history_preserved"] is True
     assert len(client.get("/api/attempts").json()) == 1
     assert len(client.get("/api/feedback").json()) == 1
+
+
+
+def test_failed_human_feedback_update_stays_pending(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    attempt_id = main.record_attempt(task["id"], "", "prompt", "completion", {
+        "score": 50, "reward": 0, "evaluator": "test", "checks": {}
+    })
+    client.post(f"/api/attempts/{attempt_id}/feedback", json={"rating": 5})
+    class FailingAdapter:
+        name = "failing-feedback-adapter"
+        def generate(self, prompt, context=None): return "generated output"
+        def train_step(self, batch): raise RuntimeError("optimizer failure")
+        def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            return {}
+        def load_checkpoint(self, source): return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: FailingAdapter())
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("failed-feedback-run", "queued", 1, main.now()))
+    main.execute_training("failed-feedback-run", {"episodes": 1, "batch_size": 1})
+    assert client.get("/api/runs/failed-feedback-run").json()["status"] == "failed"
+    assert len(client.get("/api/feedback?pending_only=true").json()) == 1
