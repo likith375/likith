@@ -907,8 +907,9 @@ def list_attempts(task_id: str | None = None, limit: int = 100):
 
 @app.post("/api/attempts/{attempt_id}/feedback")
 def submit_attempt_feedback(attempt_id: str, payload: FeedbackIn):
+    mistake_id=None
     with connect() as c:
-        attempt=c.execute("SELECT id FROM task_attempts WHERE id=?",(attempt_id,)).fetchone()
+        attempt=c.execute("SELECT id,task_id,prompt,output FROM task_attempts WHERE id=?",(attempt_id,)).fetchone()
         if not attempt:
             raise HTTPException(404,"Task attempt not found.")
         feedback_id=str(uuid.uuid4())
@@ -918,12 +919,27 @@ def submit_attempt_feedback(attempt_id: str, payload: FeedbackIn):
           VALUES(?,?,?,?,?,?,?,?)""",
           (feedback_id,attempt_id,payload.rating,reward,payload.note,
            payload.correction,payload.evidence,now()))
+        if payload.correction.strip():
+            mistake_id=str(uuid.uuid4())
+            task=c.execute("SELECT category FROM tasks WHERE id=?",(attempt["task_id"],)).fetchone()
+            category=task["category"] if task else "general"
+            c.execute("""INSERT INTO mistakes
+              (id,task_id,prompt,output,category,evidence,correction,verification,evaluator,created_at)
+              VALUES(?,?,?,?,?,?,?,?,?,?)""",
+              (mistake_id,attempt["task_id"],attempt["prompt"],attempt["output"],
+               category,payload.evidence,payload.correction,"unverified",
+               "human_feedback_candidate",now()))
     append_mistake_log("human_feedback_submitted",{
         "feedback_id":feedback_id,"attempt_id":attempt_id,"rating":payload.rating,
         "reward":reward,"note":payload.note,"correction":payload.correction,
-        "evidence":payload.evidence})
+        "evidence":payload.evidence,"mistake_id":mistake_id})
+    if mistake_id:
+        append_mistake_log("correction_candidate_created",{
+            "mistake_id":mistake_id,"attempt_id":attempt_id,
+            "verification":"unverified","note":"Human correction requires evidence review before supervised training."})
     return {"id":feedback_id,"attempt_id":attempt_id,"rating":payload.rating,
-            "reward":reward,"queued_for_training":True}
+            "reward":reward,"queued_for_training":True,"mistake_id":mistake_id,
+            "correction_requires_review":bool(mistake_id)}
 
 
 @app.get("/api/feedback")
