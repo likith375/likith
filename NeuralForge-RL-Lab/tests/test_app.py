@@ -1689,3 +1689,27 @@ def test_task_generation_continues_past_already_generated_latest_examples(tmp_pa
     generated = client.get("/api/tasks").json()
     titles = {row["title"] for row in generated}
     assert {"Practice: Example 6", "Practice: Example 5", "Practice: Example 4"} <= titles
+
+
+
+def test_task_generation_deduplicates_same_content_and_existing_manual_answer(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("DELETE FROM datasets")
+        db.execute("DELETE FROM tasks")
+        for dataset_id, name in [("same-a", "First title"), ("same-b", "Second title")]:
+            db.execute("""INSERT INTO datasets
+              (id,name,category,split,content,created_at)
+              VALUES(?,?,?,?,?,?)""",
+              (dataset_id, name, "biology", "train", "Shared photosynthesis answer", main.now()))
+    generated = client.post("/api/tasks/generate-from-dataset?limit=10").json()
+    assert generated["created"] == 1
+    assert client.post("/api/tasks/generate-from-dataset?limit=10").json()["created"] == 0
+    with main.connect() as db:
+        db.execute("DELETE FROM tasks")
+        db.execute("""INSERT INTO tasks
+          (id,title,prompt,expected,difficulty,category,created_at)
+          VALUES(?,?,?,?,?,?,?)""",
+          ("manual-existing", "Manual biology task", "Explain photosynthesis",
+           "Shared photosynthesis answer", "easy", "biology", main.now()))
+    assert client.post("/api/tasks/generate-from-dataset?limit=10").json()["created"] == 0
