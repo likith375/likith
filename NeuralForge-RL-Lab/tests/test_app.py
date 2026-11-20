@@ -782,3 +782,28 @@ def test_human_correction_requires_review_before_sft_reuse(tmp_path, monkeypatch
     })
     assert reviewed.status_code == 200
     assert any(x["correction"] == correction for x in main.verified_examples())
+
+
+
+def test_custom_evaluator_without_expected_match_works_in_benchmark(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("DELETE FROM datasets WHERE split='validation'")
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("custom-eval-val", "Explain a physics concept", "physics", "validation",
+                    "A reference about motion.", main.now()))
+    class CustomEvaluatorAdapter:
+        name = "custom-evaluator"
+        def generate(self, prompt, context=None): return "Motion describes a change in position."
+        def evaluate(self, prompt, output, expected, domain):
+            return {"score": 82, "reward": 0.64, "checks": {"rubric": True},
+                    "evaluator": "physics-rubric", "warning": "Rubric score; not a scientific proof."}
+        def train_step(self, batch): raise AssertionError("Benchmark must not train")
+        def save_checkpoint(self, destination): return {}
+        def load_checkpoint(self, source): return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: CustomEvaluatorAdapter())
+    response = client.post("/api/benchmarks/run?split=validation")
+    assert response.status_code == 200
+    detail = response.json()["details"][0]
+    assert detail["score"] == 82
+    assert detail["expected_match"] is None
