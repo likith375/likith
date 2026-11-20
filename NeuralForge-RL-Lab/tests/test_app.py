@@ -747,3 +747,28 @@ def test_post_training_checkpoint_failure_is_reported(tmp_path, monkeypatch):
     checkpoints = client.get("/api/checkpoints").json()
     assert len(checkpoints) == 1
     assert checkpoints[0]["label"] == "Automatic backup before training run"
+
+
+
+def test_human_correction_requires_review_before_sft_reuse(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    attempt_id = main.record_attempt(task["id"], "", "Explain the topic", "Wrong answer", {
+        "score": 25, "reward": -0.5, "evaluator": "test", "checks": {}
+    })
+    correction = "The corrected answer, checked against a trusted source."
+    feedback = client.post(f"/api/attempts/{attempt_id}/feedback", json={
+        "rating": 1, "correction": correction, "evidence": "Official reference section 2"
+    }).json()
+    assert feedback["mistake_id"]
+    assert feedback["correction_requires_review"] is True
+    candidate = next(x for x in client.get("/api/mistakes").json()
+                     if x["id"] == feedback["mistake_id"])
+    assert candidate["verification"] == "unverified"
+    assert all(x["correction"] != correction for x in main.verified_examples())
+    reviewed = client.patch(f"/api/mistakes/{feedback['mistake_id']}", json={
+        "verification": "verified", "correction": correction,
+        "evidence": "Confirmed in official reference section 2"
+    })
+    assert reviewed.status_code == 200
+    assert any(x["correction"] == correction for x in main.verified_examples())
