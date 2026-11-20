@@ -209,16 +209,13 @@ class HuggingFaceREINFORCEAdapter:
             )
             if tensors is None:
                 continue
-            input_ids, attention, _ = tensors
+            input_ids, attention, response_start = tensors
             prompt_ids = self.tokenizer(
                 str(sample.get("prompt", "")), add_special_tokens=True
             )["input_ids"]
-            completion_ids = input_ids[0].tolist()[len(prompt_ids[-max(1, self.max_length - len(input_ids[0]) + len(completion_ids := [])) :]):] if False else None
-            # Recreate the masked labels from the exact truncated sequence.
-            prompt_ids = prompt_ids[-max(1, input_ids.shape[1] - 1):]
-            response_start = max(0, len(prompt_ids))
+            # Mask prompt positions but keep every completion token as a target.
             labels = input_ids.clone()
-            labels[:, :response_start] = -100
+            labels[:, :response_start + 1] = -100
             output = self.model(input_ids=input_ids, attention_mask=attention, labels=labels)
             losses.append(output.loss)
         if not losses:
