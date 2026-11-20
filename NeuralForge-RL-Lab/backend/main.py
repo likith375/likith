@@ -811,7 +811,9 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
             for row_number,values in enumerate(iterator,2):
                 if not any(value is not None and str(value).strip() for value in values): continue
                 item={header_names[i]:value for i,value in enumerate(values) if i<len(header_names)}
-                item.setdefault("prompt",f"{Path(filename).name} · {sheet.title} row {row_number}")
+                prompt_keys=("prompt","instruction","question","input","user","title","name")
+                if not any(item.get(key) is not None and str(item.get(key)).strip() for key in prompt_keys):
+                    item["prompt"]=f"{Path(filename).name} · {sheet.title} row {row_number}"
                 content_keys=("content","code","completion","output","response","answer","target","assistant","text")
                 if not any(item.get(key) is not None and str(item.get(key)).strip() for key in content_keys):
                     item["content"]=" | ".join(f"{key}: {value}" for key,value in item.items()
