@@ -308,6 +308,10 @@ def test_python_domain_checks_syntax_without_execution():
     assert invalid["checks"]["python_syntax_valid"] is False
     assert invalid["score"] <= 25
     assert "not executed" in invalid["warning"]
+    assignment = main.evaluate_python_static("x = 1")
+    broken_assignment = main.evaluate_python_static("x =")
+    assert assignment["checks"]["python_syntax_valid"] is True
+    assert broken_assignment["checks"]["python_syntax_valid"] is False
 
 
 def test_instruction_dataset_schema_imports_question_and_answer_fields(tmp_path, monkeypatch):
