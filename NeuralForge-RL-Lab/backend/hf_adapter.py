@@ -125,6 +125,9 @@ class HuggingFaceREINFORCEAdapter:
         completion_ids = self.tokenizer(completion, add_special_tokens=False)["input_ids"]
         if not completion_ids:
             return None
+        eos_id=self.tokenizer.eos_token_id
+        if eos_id is not None and completion_ids[-1] != eos_id:
+            completion_ids.append(eos_id)
         completion_ids = completion_ids[: max(1, self.max_length // 2)]
         prompt_ids = prompt_ids[-max(1, self.max_length - len(completion_ids) - 1):]
         ids = prompt_ids + completion_ids
