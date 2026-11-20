@@ -1086,8 +1086,11 @@ def adapter_status():
                 "message":"Set an adapter module or local Hugging Face model directory."}
     try:
         adapter=get_adapter()
+        diagnostics=getattr(adapter,"diagnostics",None)
+        details=diagnostics() if callable(diagnostics) else {}
         return {"configured":True,"connected":True,"can_train":True,
                 "name":getattr(adapter,"name",type(adapter).__name__),
+                "diagnostics":details,
                 "message":"Adapter loaded. A training run will call generate and train_step."}
     except Exception as exc:
         return {"configured":True,"connected":False,"can_train":False,"error":str(exc)}
@@ -1129,8 +1132,11 @@ def test_adapter():
         if not output.strip():
             raise RuntimeError("The connected model returned an empty response.")
         evaluator = callable(getattr(adapter, "evaluate", None))
+        diagnostics=getattr(adapter,"diagnostics",None)
+        details=diagnostics() if callable(diagnostics) else {}
         return {"connected": True, "name": getattr(adapter, "name", type(adapter).__name__),
                 "generation_ok": True, "sample_output": output[:1200],
+                "model_diagnostics": details,
                 "domain_evaluator": evaluator,
                 "training_hooks": {"reward": callable(getattr(adapter, "train_step", None)),
                                    "supervised": callable(getattr(adapter, "supervised_step", None))},
