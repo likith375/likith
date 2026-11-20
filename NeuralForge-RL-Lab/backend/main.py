@@ -1102,8 +1102,8 @@ def try_task(task_id: str):
         with MODEL_EXECUTION_LOCK:
             generated=adapter.generate(prompt,{"task_id":task_id,"difficulty":task["difficulty"],"category":task["category"],
                                                "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
-        output=generated if isinstance(generated,str) else str(generated.get("text",""))
-        evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
+            output=generated if isinstance(generated,str) else str(generated.get("text",""))
+            evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
         attempt_id=record_attempt(task_id,"",prompt,output,evaluation)
         mistake_id=None
         if evaluation["score"] < float(setting_map().get("reward_threshold","0.45"))*100:
@@ -1212,7 +1212,8 @@ def adapter_status():
     try:
         adapter=get_adapter()
         diagnostics=getattr(adapter,"diagnostics",None)
-        details=diagnostics() if callable(diagnostics) else {}
+        with MODEL_EXECUTION_LOCK:
+            details=diagnostics() if callable(diagnostics) else {}
         return {"configured":True,"connected":True,"can_train":True,
                 "name":getattr(adapter,"name",type(adapter).__name__),
                 "diagnostics":details,
@@ -1259,7 +1260,8 @@ def test_adapter():
             raise RuntimeError("The connected model returned an empty response.")
         evaluator = callable(getattr(adapter, "evaluate", None))
         diagnostics=getattr(adapter,"diagnostics",None)
-        details=diagnostics() if callable(diagnostics) else {}
+        with MODEL_EXECUTION_LOCK:
+            details=diagnostics() if callable(diagnostics) else {}
         return {"connected": True, "name": getattr(adapter, "name", type(adapter).__name__),
                 "generation_ok": True, "sample_output": output[:1200],
                 "model_diagnostics": details,
@@ -1289,8 +1291,8 @@ def generate_once(payload: dict):
         with MODEL_EXECUTION_LOCK:
             generated = adapter.generate(full_prompt, {"category": category,
                                                         "max_new_tokens": int(setting_map().get("max_new_tokens", "384"))})
-        output = generated if isinstance(generated, str) else str(generated.get("text", ""))
-        evaluation = evaluate_with_adapter(adapter, full_prompt, output, "", category)
+            output = generated if isinstance(generated, str) else str(generated.get("text", ""))
+            evaluation = evaluate_with_adapter(adapter, full_prompt, output, "", category)
         return {"output": output, "evaluation": evaluation, "model": getattr(adapter, "name", type(adapter).__name__)}
     except HTTPException:
         raise
