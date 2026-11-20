@@ -554,8 +554,8 @@ def evaluate(payload:dict):
 @app.get("/api/mistakes")
 def list_mistakes(verification:str | None=None):
     query="""SELECT m.id,m.task_id,m.prompt,m.output,m.category,
-      COALESCE(NULLIF((SELECT e.evidence FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.evidence) AS evidence,
-      COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS correction,
+      COALESCE(NULLIF((SELECT e.evidence FROM mistake_events e WHERE e.mistake_id=m.id AND e.evidence<>'' ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.evidence) AS evidence,
+      COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id AND e.correction<>'' ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS correction,
       m.evaluator,m.created_at,
       COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
                 ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification) AS verification
@@ -580,8 +580,8 @@ def review_mistake(mid:str, review:ReviewIn):
         raise HTTPException(400,"Choose verified, rejected or needs_review.")
     with connect() as c:
         row=c.execute("""SELECT m.correction,m.evidence,
-          COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS current_correction,
-          COALESCE(NULLIF((SELECT e.evidence FROM mistake_events e WHERE e.mistake_id=m.id ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.evidence) AS current_evidence
+          COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id AND e.correction<>'' ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS current_correction,
+          COALESCE(NULLIF((SELECT e.evidence FROM mistake_events e WHERE e.mistake_id=m.id AND e.evidence<>'' ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.evidence) AS current_evidence
           FROM mistakes m WHERE m.id=?""",(mid,)).fetchone()
         if not row: raise HTTPException(404,"Mistake not found.")
         correction=review.correction.strip() or row["current_correction"]
