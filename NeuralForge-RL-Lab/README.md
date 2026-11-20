@@ -64,7 +64,7 @@ Open http://127.0.0.1:8000.
 ## Connect your own scratch-built AI
 
 1. Put your model integration in a Python module inside the project.
-2. Implement the adapter methods shown in `adapters/custom_adapter.py`.
+2. Implement the adapter methods shown in `adapters/custom_adapter.py`; follow the full [scratch-built AI adapter guide](docs/custom-adapter-guide.md).
 3. In **Model connection**, set the module factory, for example:
 
    `adapters.custom_adapter:load_adapter`
