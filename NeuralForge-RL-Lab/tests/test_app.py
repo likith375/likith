@@ -975,3 +975,28 @@ def test_run_report_collects_attempts_and_checkpoints(tmp_path, monkeypatch):
     assert report["attempt_stats"]["average_score"] == 80
     assert report["recent_attempts"][0]["task_title"] == task["title"]
     assert report["checkpoints"][0]["label"] == "After run"
+
+
+
+def test_training_time_budget_marks_run_stopped(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class TimeBudgetAdapter:
+        name = "time-budget-test"
+        def generate(self, prompt, context=None): return "Should not be called."
+        def train_step(self, batch): return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"test weights")
+            return {}
+        def load_checkpoint(self, source): return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: TimeBudgetAdapter())
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("time-budget-run", "queued", 10, main.now()))
+    main.execute_training("time-budget-run", {
+        "episodes": 10, "batch_size": 1, "duration_hours": 0.000000000001
+    })
+    run = client.get("/api/runs/time-budget-run").json()
+    assert run["status"] == "stopped"
+    assert run["episodes_completed"] == 0
+    assert "Time budget reached" in run["notes"]
