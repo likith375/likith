@@ -20,4 +20,6 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -r requirements-dev.txt
+      - run: python -m compileall -q backend adapters tests
+      - run: node --check frontend/app.js
       - run: pytest -q
