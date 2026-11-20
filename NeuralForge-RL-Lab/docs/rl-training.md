@@ -62,3 +62,19 @@ NeuralForge saves an automatic restorable checkpoint before each run; the adapte
 ## Long training sessions
 
 A run can be limited by a maximum episode count and an optional time budget of up to 24 hours. The time budget is an upper bound, not a promise that the run will consume the full duration. Set a sufficiently high episode cap if you want the clock to be the limiting condition. The Stop button requests a graceful stop after the current batch. The computer or Codespace must remain available; closing a browser tab alone does not stop the server-side worker, but a sleeping or stopped Codespace will interrupt the process.
+
+
+## Human-rated replay learning
+
+Every saved task attempt has a stable attempt ID. Submit reviewer feedback with:
+
+```http
+POST /api/attempts/{attempt_id}/feedback
+Content-Type: application/json
+
+{"rating": 5, "note": "Correct and clear", "evidence": "Checked against the supplied reference"}
+```
+
+Ratings map linearly to reward: 1 → -1, 2 → -0.5, 3 → 0, 4 → 0.5, 5 → 1. The next training run replays up to 64 pending rated attempts through the adapter's reward-learning hook before generating new samples. Feedback is marked consumed only after a successful, validated positive update count. If the adapter fails, the feedback remains pending. This makes reviewer feedback a durable learning signal rather than a dashboard-only comment.
+
+Use `GET /api/attempts` to inspect attempts and `GET /api/feedback?pending_only=true` to inspect the replay queue. Task deletion preserves attempt and feedback records.
