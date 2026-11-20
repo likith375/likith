@@ -193,3 +193,74 @@ def test_generic_evaluator_does_not_require_luau_syntax():
     result = main.static_evaluate("Photosynthesis converts light energy into chemical energy.")
     assert result["checks"]["non_empty"] is True
     assert "does not execute code" in result["warning"]
+
+
+def test_reward_update_must_be_explicit_and_positive():
+    import pytest
+    assert main.validate_update_result({"updates": 2, "loss": 0.5}, "train_step") == (2, 0.5)
+    with pytest.raises(ValueError):
+        main.validate_update_result({"loss": 0.5}, "train_step")
+    with pytest.raises(RuntimeError):
+        main.validate_update_result({"updates": 0, "loss": 0.5}, "train_step")
+    with pytest.raises(ValueError):
+        main.validate_update_result({"updates": 1, "loss": float("nan")}, "train_step")
+
+
+def test_run_fails_if_adapter_does_not_report_real_updates(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+
+    class BadAdapter:
+        name = "bad-update-adapter"
+        def generate(self, prompt, context=None):
+            return "A useful-looking answer."
+        def train_step(self, batch):
+            return {"loss": 0.25}  # No explicit update count.
+        def save_checkpoint(self, destination):
+            return {}
+        def load_checkpoint(self, source):
+            return {}
+
+    monkeypatch.setattr(main, "get_adapter", lambda: BadAdapter())
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("fake-no-update", "queued", 1, main.now()))
+    main.execute_training("fake-no-update", {"episodes": 1, "batch_size": 1})
+    run = client.get("/api/runs/fake-no-update").json()
+    assert run["status"] == "failed"
+    assert run["real_updates"] == 0
+    assert "explicit updates count" in run["error"]
+
+
+def test_adapter_domain_evaluator_is_used():
+    class EvaluatorAdapter:
+        name = "science-evaluator"
+        def evaluate(self, prompt, output, expected, domain):
+            assert domain == "science"
+            return {"score": 88, "reward": 0.76, "checks": {"evidence": True}}
+    result = main.evaluate_with_adapter(
+        EvaluatorAdapter(), "Explain photosynthesis", "Answer", "", "science"
+    )
+    assert result["score"] == 88
+    assert result["reward"] == 0.76
+    assert result["evaluator"] == "EvaluatorAdapter"
+
+
+def test_system_diagnostics_endpoint(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    response = client.get("/api/system/diagnostics")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["ok"] is True
+    assert data["counts"]["datasets"] >= 4
+
+
+def test_checkpoint_failure_is_not_saved_as_fake_metadata(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+
+    class NoCheckpointAdapter:
+        def save_checkpoint(self, destination):
+            return {"saved": destination}
+    monkeypatch.setattr(main, "get_adapter", lambda: NoCheckpointAdapter())
+    response = client.post("/api/checkpoints", json={"label": "should fail"})
+    assert response.status_code == 400
+    assert client.get("/api/checkpoints").json() == []
