@@ -20,20 +20,16 @@ The importer also accepts `instruction` / `title` as prompt aliases and `code` /
 {"prompt":"Create a part","category":"instances","content":"local part = Instance.new(\"Part\")","split":"train"}
 ```
 
-CSV files should contain at least one prompt-like column and one content-like column.
+CSV files should contain at least one prompt-like column and one content-like column. Text-based source and documentation files are imported as reference material. Jupyter notebooks are split into cells. PDF files import selectable text page by page; scanned-image PDFs need OCR and are not currently supported. DOCX files import paragraphs and tables. PDF/DOCX support uses `pypdf` and `python-docx`, installed by `requirements.txt`.
 
 ## Recommended categories
 
-- syntax and language basics
-- services and instances
-- events and connections
-- player and character systems
-- UI and input
-- RemoteEvents and RemoteFunctions
-- modules and architecture
-- physics and movement
-- data stores and persistence
-- debugging and error handling
-- performance and security
+- programming languages and software engineering
+- mathematics, physics, chemistry and biology
+- writing, reading and languages
+- engineering, electronics and design
+- research methods and factual knowledge
+- debugging, reasoning and problem solving
+- any other user-defined subject
 
 Do not upload secrets, API keys, personal data or private player information.
