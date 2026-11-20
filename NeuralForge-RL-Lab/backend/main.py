@@ -1580,6 +1580,7 @@ def generate_once(payload: dict):
 @app.post("/api/runs/start")
 def start_run(request:RunIn, background:BackgroundTasks):
     rid=str(uuid.uuid4())
+    validation_error=None
     with RUN_SCHEDULER_LOCK:
         with connect() as c:
             active=c.execute("SELECT id,status FROM runs WHERE status IN ('queued','running') LIMIT 1").fetchone()
@@ -1593,13 +1594,16 @@ def start_run(request:RunIn, background:BackgroundTasks):
             train_count=c.execute("SELECT COUNT(*) FROM datasets WHERE split='train'").fetchone()[0]
             cfg={row["key"]:row["value"] for row in c.execute("SELECT key,value FROM adapter_settings")}
             if not task_count:
-                raise HTTPException(400,"Create at least one enabled task before starting training.")
-            if not train_count:
-                raise HTTPException(400,"Import at least one train-split dataset example before starting training.")
-            if not (cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip()):
-                raise HTTPException(400,"Connect a model adapter or local model before starting training.")
-            c.execute("INSERT INTO runs(id,status,episodes,reward,success_rate,real_updates,notes,created_at,duration_hours) VALUES(?,?,?,?,?,?,?,?,?)",
-                      (rid,"queued",request.episodes,0,0,0,"Queued; imported train-split examples and reward feedback will be used when supported by the adapter.",now(),request.duration_hours))
+                validation_error="Create at least one enabled task before starting training."
+            elif not train_count:
+                validation_error="Import at least one train-split dataset example before starting training."
+            elif not (cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip()):
+                validation_error="Connect a model adapter or local model before starting training."
+            if not validation_error:
+                c.execute("INSERT INTO runs(id,status,episodes,reward,success_rate,real_updates,notes,created_at,duration_hours) VALUES(?,?,?,?,?,?,?,?,?)",
+                          (rid,"queued",request.episodes,0,0,0,"Queued; imported train-split examples and reward feedback will be used when supported by the adapter.",now(),request.duration_hours))
+    if validation_error:
+        raise HTTPException(400,validation_error)
     background.add_task(execute_training,rid,request.model_dump())
     return {"id":rid,"status":"queued","episodes":request.episodes,"duration_hours":request.duration_hours,"message":"Training run queued. Poll /api/runs for status."}
 
