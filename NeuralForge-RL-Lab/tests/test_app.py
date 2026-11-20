@@ -274,6 +274,7 @@ def test_checkpoint_failure_is_not_saved_as_fake_metadata(tmp_path, monkeypatch)
 
     class NoCheckpointAdapter:
         def save_checkpoint(self, destination):
+            Path(destination).mkdir(parents=True, exist_ok=True)
             return {"saved": destination}
     monkeypatch.setattr(main, "get_adapter", lambda: NoCheckpointAdapter())
     response = client.post("/api/checkpoints", json={"label": "should fail"})
