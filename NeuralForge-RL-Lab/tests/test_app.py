@@ -1506,6 +1506,7 @@ def test_checkpoint_delete_refuses_paths_outside_checkpoint_directory(tmp_path, 
 
 
 def test_dataset_import_serializes_spreadsheet_datetime_metadata():
+    import json
     from datetime import datetime
     prepared = main.prepared_dataset_rows([
         {"prompt": "What happened?", "content": "An event.", "metadata": {
