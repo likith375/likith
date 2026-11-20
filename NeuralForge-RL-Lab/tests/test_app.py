@@ -1386,7 +1386,7 @@ def test_failed_checkpoint_restore_rolls_back_to_current_model(tmp_path, monkeyp
             return {"state": self.state}
     adapter = RestorableAdapter()
     monkeypatch.setattr(main, "get_adapter", lambda: adapter)
-    bad_path = tmp_path / "bad-checkpoint"
+    bad_path = main.CHECKPOINT_DIR / "bad-checkpoint"
     bad_path.mkdir()
     (bad_path / "state.txt").write_text("corrupt-checkpoint", encoding="utf-8")
     with main.connect() as db:
