@@ -435,12 +435,13 @@ def _execute_training_locked(run_id, request):
             raise RuntimeError("No model is connected. Configure an adapter or a Hugging Face model path first.")
         model_name=getattr(adapter,"name",type(adapter).__name__)
         verified_rows=verified_examples(limit=500)
-        supervised_rows=[dict(row) for row in train_rows]
-        supervised_rows.extend({
+        # Put verified corrections first so they are not starved by a large raw corpus.
+        supervised_rows=[{
             "name":"Verified correction: "+row["prompt"],
             "category":row["category"],
             "content":row["correction"]
-        } for row in verified_rows)
+        } for row in verified_rows]
+        supervised_rows.extend(dict(row) for row in train_rows)
         # Preserve a restorable model snapshot before the first optimizer update.
         backup_id=str(uuid.uuid4())
         backup_path=str(CHECKPOINT_DIR/backup_id)
