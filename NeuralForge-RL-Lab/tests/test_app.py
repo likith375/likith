@@ -727,6 +727,11 @@ def test_adapter_test_reports_generation_without_weight_updates(tmp_path, monkey
 
 def test_post_training_checkpoint_failure_is_reported(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    attempt_id = main.record_attempt(task["id"], "", "prompt", "answer", {
+        "score": 50, "reward": 0, "evaluator": "test", "checks": {}
+    })
+    client.post(f"/api/attempts/{attempt_id}/feedback", json={"rating": 5})
     class CheckpointFailureAdapter:
         name = "checkpoint-failure-adapter"
         def __init__(self): self.saves = 0
@@ -751,6 +756,7 @@ def test_post_training_checkpoint_failure_is_reported(tmp_path, monkeypatch):
     checkpoints = client.get("/api/checkpoints").json()
     assert len(checkpoints) == 1
     assert checkpoints[0]["label"] == "Automatic backup before training run"
+    assert len(client.get("/api/feedback?pending_only=true").json()) == 1
 
 
 
