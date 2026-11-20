@@ -435,6 +435,23 @@ def add_task(t:TaskIn):
                   (tid,t.title,t.prompt,t.expected,t.difficulty,t.category,now()))
     return {"id":tid}
 
+@app.post("/api/tasks/generate-from-dataset")
+def generate_tasks_from_dataset(limit: int = 30):
+    limit=max(1,min(limit,200))
+    with connect() as c:
+        rows=c.execute("SELECT name,category,content FROM datasets WHERE split='train' ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
+        existing={r["title"] for r in c.execute("SELECT title FROM tasks")}
+        created=0
+        for row in rows:
+            title=("Practice: "+row["name"])[:180]
+            if title in existing:
+                continue
+            prompt=f"Create a Roblox Luau solution that demonstrates this topic: {row['name']}. Use correct Roblox APIs, explain assumptions briefly, and return a complete code example."
+            c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,created_at) VALUES(?,?,?,?,?,?,?)",
+                      (str(uuid.uuid4()),title,prompt,row["content"],"easy",row["category"],now()))
+            existing.add(title); created+=1
+    return {"created":created,"available_examples":len(rows),"message":"Practice tasks generated from train-split examples only."}
+
 @app.post("/api/tasks/{task_id}/try")
 def try_task(task_id: str):
     with connect() as c:
