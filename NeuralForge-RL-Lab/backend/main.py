@@ -76,7 +76,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS tasks(
           id TEXT PRIMARY KEY,title TEXT NOT NULL,prompt TEXT NOT NULL,expected TEXT DEFAULT '',
           difficulty TEXT DEFAULT 'easy',category TEXT DEFAULT 'general',enabled INTEGER DEFAULT 1,
-          created_at TEXT NOT NULL);
+          source_dataset_id TEXT DEFAULT '',created_at TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS mistakes(
           id TEXT PRIMARY KEY,task_id TEXT DEFAULT '',prompt TEXT NOT NULL,output TEXT NOT NULL,
           category TEXT NOT NULL,evidence TEXT DEFAULT '',correction TEXT DEFAULT '',
@@ -117,7 +117,8 @@ def init_db():
         # Upgrade the early prototype database without destroying user data.
         migrations = {
           "datasets": {"metadata_json": "TEXT DEFAULT '{}'"},
-          "tasks": {"category": "TEXT DEFAULT 'general'", "enabled": "INTEGER DEFAULT 1"},
+          "tasks": {"category": "TEXT DEFAULT 'general'", "enabled": "INTEGER DEFAULT 1",
+                    "source_dataset_id": "TEXT DEFAULT ''"},
           "mistake_events": {"correction": "TEXT DEFAULT ''", "evidence": "TEXT DEFAULT ''"},
           "runs": {"started_at": "TEXT", "finished_at": "TEXT", "error": "TEXT",
                    "avg_loss": "REAL DEFAULT 0", "model_name": "TEXT DEFAULT ''",
@@ -365,12 +366,14 @@ def verified_examples(limit=6, category: str | None=None):
     return [{"prompt":r["prompt"],"correction":r["correction"],"category":r["domain"]} for r in rows[:limit]]
 
 
-def dataset_examples(category="general", prompt: str="", limit=4):
+def dataset_examples(category="general", prompt: str="", limit=4, exclude_id: str | None=None):
     with connect() as c:
-        rows=c.execute("""
-          SELECT name,category,content,created_at FROM datasets
-          WHERE split='train' ORDER BY created_at DESC LIMIT 1000
-        """).fetchall()
+        query="""SELECT id,name,category,content,created_at FROM datasets WHERE split='train'"""
+        args=[]
+        if exclude_id:
+            query+=" AND id<>?"; args.append(exclude_id)
+        query+=" ORDER BY created_at DESC LIMIT 1000"
+        rows=c.execute(query,args).fetchall()
     query_terms=retrieval_terms(str(category)+" "+str(prompt))
     scored=[]
     for row in rows:
@@ -390,7 +393,7 @@ def dataset_examples(category="general", prompt: str="", limit=4):
 def build_prompt(task):
     domain = task.get("domain") or task.get("category") or "general"
     verified = verified_examples(category=domain)
-    references = dataset_examples(domain, task.get("prompt",""))
+    references = dataset_examples(domain, task.get("prompt",""), exclude_id=task.get("source_dataset_id") or None)
     parts=[task["prompt"], "\n\nWork in the subject/domain: " + str(domain) + ". Use supplied context only when relevant. Follow the requested output format, state assumptions, and do not invent facts."]
     if references:
         parts.append("\n\nRelevant reference examples from uploaded training material:")
@@ -1083,7 +1086,7 @@ def add_task(t:TaskIn):
 def generate_tasks_from_dataset(limit: int = 30):
     limit=max(1,min(limit,200))
     with connect() as c:
-        rows=c.execute("SELECT name,category,content FROM datasets WHERE split='train' ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
+        rows=c.execute("SELECT id,name,category,content FROM datasets WHERE split='train' ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
         existing={r["title"] for r in c.execute("SELECT title FROM tasks")}
         created=0
         for row in rows:
@@ -1091,8 +1094,8 @@ def generate_tasks_from_dataset(limit: int = 30):
             if title in existing:
                 continue
             prompt=f"Demonstrate and explain this subject from the uploaded training material: {row['name']}. Produce a correct, useful answer in the format appropriate to the subject."
-            c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,created_at) VALUES(?,?,?,?,?,?,?)",
-                      (str(uuid.uuid4()),title,prompt,row["content"],"easy",row["category"],now()))
+            c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,source_dataset_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
+                      (str(uuid.uuid4()),title,prompt,row["content"],"easy",row["category"],row["id"],now()))
             existing.add(title); created+=1
     return {"created":created,"available_examples":len(rows),"message":"Practice tasks generated from train-split examples only."}
 
