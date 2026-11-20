@@ -342,8 +342,8 @@ def validate_update_result(result: Any, operation: str) -> tuple[int, float | No
     updates = result.get("updates")
     if type(updates) is not int or updates < 0:
         raise ValueError(f"{operation} must return a non-negative integer updates field.")
-    if operation == "train_step" and updates < 1:
-        raise RuntimeError("The adapter reported zero reward-learning updates; the run cannot claim learning.")
+    # Zero is a valid explicit result when the adapter finds no trainable tokens
+    # or the policy-gradient advantage is zero. It is never counted as learning.
     loss = result.get("loss")
     if loss is not None:
         loss = float(loss)
@@ -525,7 +525,8 @@ def _execute_training_locked(run_id, request):
             updates+=feedback_updates
             feedback_examples=len(pending_feedback)
             if feedback_loss is not None: losses.append(feedback_loss)
-            feedback_ids_to_consume=[row["id"] for row in pending_feedback]
+            if feedback_updates > 0:
+                feedback_ids_to_consume=[row["id"] for row in pending_feedback]
             with connect() as c:
                 c.execute("UPDATE runs SET human_feedback_examples=?,feedback_updates=?,real_updates=? WHERE id=?",
                           (feedback_examples,feedback_updates,updates,run_id))
