@@ -1396,3 +1396,36 @@ def test_failed_checkpoint_restore_rolls_back_to_current_model(tmp_path, monkeyp
     assert adapter.state == "current-model"
     safety = client.get("/api/checkpoints").json()
     assert any(row["label"] == "Automatic safety backup before restore" for row in safety)
+
+
+
+def test_failed_training_restores_pretraining_model_weights(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    task = client.get("/api/tasks").json()[0]
+    class CrashingAdapter:
+        name = "crashing-adapter"
+        def __init__(self): self.state = "before-training"
+        def generate(self, prompt, context=None): return "deliberately incorrect output"
+        def evaluate(self, prompt, output, expected, domain):
+            return {"score": 0, "reward": -1, "checks": {}, "evaluator": "test"}
+        def train_step(self, batch):
+            self.state = "partially-updated"
+            raise RuntimeError("simulated optimizer crash")
+        def save_checkpoint(self, destination):
+            folder = Path(destination)
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "state.txt").write_text(self.state, encoding="utf-8")
+            return {}
+        def load_checkpoint(self, source):
+            self.state = (Path(source) / "state.txt").read_text(encoding="utf-8")
+            return {"state": self.state}
+    adapter = CrashingAdapter()
+    monkeypatch.setattr(main, "get_adapter", lambda: adapter)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("crash-rollback-run", "queued", 1, main.now()))
+    main.execute_training("crash-rollback-run", {"episodes": 1, "batch_size": 1})
+    run = client.get("/api/runs/crash-rollback-run").json()
+    assert run["status"] == "failed"
+    assert adapter.state == "before-training"
+    assert "restored automatically" in run["error"]
