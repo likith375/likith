@@ -169,3 +169,27 @@ def test_verification_requires_correction_and_evidence(tmp_path, monkeypatch):
     })
     assert response.status_code == 400
     assert client.get("/api/mistakes?verification=unverified").json()
+
+def test_python_file_imported_as_general_training_material(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    response = client.post("/api/datasets/import", files={
+        "file": ("example.py", b"def add(a, b):\\n    return a + b\\n", "text/x-python")
+    })
+    assert response.status_code == 200
+    item = next(x for x in client.get("/api/datasets").json() if x["name"] == "Reference material: example.py")
+    assert item["category"] == "py"
+    assert "def add" in item["content"]
+
+def test_notebook_cells_imported_separately(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    notebook = b'{"cells":[{"cell_type":"code","source":["x = 1\\n","print(x)"]}]}'
+    response = client.post("/api/datasets/import", files={
+        "file": ("lesson.ipynb", notebook, "application/json")
+    })
+    assert response.status_code == 200
+    assert any("lesson.ipynb cell 1" in x["name"] for x in client.get("/api/datasets").json())
+
+def test_generic_evaluator_does_not_require_luau_syntax():
+    result = main.static_evaluate("Photosynthesis converts light energy into chemical energy.")
+    assert result["checks"]["non_empty"] is True
+    assert "does not execute code" in result["warning"]
