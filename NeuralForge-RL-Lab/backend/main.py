@@ -37,6 +37,7 @@ _adapter_instance = None
 _adapter_fingerprint = None
 _adapter_error = None
 RUN_SCHEDULER_LOCK = threading.Lock()
+DATASET_IMPORT_LOCK = threading.Lock()
 MODEL_EXECUTION_LOCK = threading.RLock()
 
 def now() -> str:
@@ -992,6 +993,20 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
                  "content": decoded, "category": suffix.lstrip(".") or "general", "split":"train"}]
     raise ValueError("Unsupported or binary file type.")
 
+def store_dataset_rows(rows: list[dict[str, Any]], category: str, source_name: str,
+                       digest: str, document_chunks: bool=False) -> int:
+    """Serialize split checks and inserts so concurrent imports cannot race."""
+    with DATASET_IMPORT_LOCK:
+        prepared=prepared_dataset_rows(
+            rows,category,source_name,digest,document_chunks=document_chunks,
+            existing_content_splits=existing_dataset_content_splits()
+        )
+        with connect() as c:
+            for item in prepared:
+                c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",item)
+        return len(prepared)
+
+
 @app.post("/api/datasets/import")
 async def import_data(file: UploadFile=File(...), category: str="general"):
     if not file.filename or Path(file.filename).suffix.lower() not in DATASET_EXTENSIONS:
@@ -1009,14 +1024,11 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
     if not isinstance(rows,list): raise HTTPException(400,"Uploaded material did not produce examples.")
     is_document=Path(file.filename).suffix.lower() in DOCUMENT_CHUNK_EXTENSIONS
     digest=hashlib.sha256(raw).hexdigest()
-    prepared=prepared_dataset_rows(rows,category,Path(file.filename).name,digest,
-                                    document_chunks=is_document,
-                                    existing_content_splits=existing_dataset_content_splits())
-    count=0
-    with connect() as c:
-        for item in prepared:
-            c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",item)
-            count+=1
+    try:
+        count=store_dataset_rows(rows,category,Path(file.filename).name,digest,
+                                 document_chunks=is_document)
+    except ValueError as exc:
+        raise HTTPException(409,str(exc))
     return {"added":count,"total_rows":len(rows),"splits":"train/validation/test"}
 
 @app.post("/api/datasets/import-folder")
@@ -1049,13 +1061,11 @@ def import_inbox_folder():
             if isinstance(row,dict) and str(row.get("prompt","")).startswith("Reference material: "):
                 row["prompt"]="Reference file: "+path.name
         is_document=path.suffix.lower() in DOCUMENT_CHUNK_EXTENSIONS
-        prepared=prepared_dataset_rows(rows,path.suffix.lower().lstrip("."),source_name,digest,
-                                        document_chunks=is_document,
-                                        existing_content_splits=existing_dataset_content_splits())
-        with connect() as c:
-            for item in prepared:
-                c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",item)
-                added+=1
+        try:
+            added+=store_dataset_rows(rows,path.suffix.lower().lstrip("."),source_name,digest,
+                                      document_chunks=is_document)
+        except ValueError as exc:
+            skipped.append({"file":path.name,"reason":str(exc)})
     return {"scanned_files":scanned,"added":added,"skipped":skipped,"folders":[str(DATA_INBOX),str(DATA_EXAMPLES_DIR)]}
 
 @app.get("/api/datasets/export")
