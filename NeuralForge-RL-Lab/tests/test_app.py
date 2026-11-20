@@ -1644,3 +1644,19 @@ def test_mistake_review_event_export_preserves_audit_history(tmp_path, monkeypat
     assert rows[0]["mistake_id"] == mistake["id"]
     assert rows[0]["action"] == "needs_review"
     assert rows[0]["original_prompt"] == "Explain gravity"
+
+
+
+def test_database_startup_marks_orphaned_runs_interrupted(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("stale-running", "running", 10, main.now()))
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("stale-queued", "queued", 10, main.now()))
+    main.init_db()
+    running = client.get("/api/runs/stale-running").json()
+    queued = client.get("/api/runs/stale-queued").json()
+    assert running["status"] == "interrupted"
+    assert queued["status"] == "interrupted"
+    assert "Server restarted" in running["error"]
