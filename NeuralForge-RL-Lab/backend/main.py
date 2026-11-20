@@ -138,6 +138,7 @@ def init_db():
         c.executescript("""
         CREATE INDEX IF NOT EXISTS idx_datasets_split_category ON datasets(split,category);
         CREATE INDEX IF NOT EXISTS idx_tasks_enabled_created ON tasks(enabled,created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tasks_source_dataset ON tasks(source_dataset_id);
         CREATE INDEX IF NOT EXISTS idx_runs_status_created ON runs(status,created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_task_attempts_run_created ON task_attempts(run_id,created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_mistakes_task_created ON mistakes(task_id,created_at DESC);
@@ -1275,18 +1276,20 @@ def generate_tasks_from_dataset(limit: int = 30):
     with connect() as c:
         available=c.execute("SELECT COUNT(*) FROM datasets WHERE split='train'").fetchone()[0]
         existing={r["title"] for r in c.execute("SELECT title FROM tasks")}
+        represented_examples={
+            (row["category"],hashlib.sha256(row["content"].encode("utf-8")).hexdigest())
+            for row in c.execute("""SELECT d.category,d.content FROM tasks t
+                                    JOIN datasets d ON d.id=t.source_dataset_id""")
+        }
         query="""SELECT d.id,d.name,d.category,d.content FROM datasets d
                  WHERE d.split='train'
                    AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.source_dataset_id=d.id)
-                   AND NOT EXISTS (SELECT 1 FROM tasks t
-                                   JOIN datasets source ON source.id=t.source_dataset_id
-                                   WHERE source.category=d.category AND source.content=d.content)
                  ORDER BY d.created_at DESC"""
         created=0
         seen_examples=set()
         for row in c.execute(query):
             content_key=(row["category"],hashlib.sha256(row["content"].encode("utf-8")).hexdigest())
-            if content_key in seen_examples:
+            if content_key in seen_examples or content_key in represented_examples:
                 continue
             title=("Practice: "+row["name"])[:180]
             if title in existing:
@@ -1295,7 +1298,7 @@ def generate_tasks_from_dataset(limit: int = 30):
             prompt=f"Demonstrate and explain this subject from the uploaded training material: {row['name']}. Produce a correct, useful answer in the format appropriate to the subject."
             c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,source_dataset_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
                       (str(uuid.uuid4()),title,prompt,row["content"],"easy",row["category"],row["id"],now()))
-            existing.add(title); created+=1
+            existing.add(title); represented_examples.add(content_key); created+=1
             if created>=limit:
                 break
     return {"created":created,"available_examples":available,"message":"Practice tasks generated from train-split examples not already represented by a generated task."}
