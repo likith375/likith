@@ -1022,7 +1022,12 @@ def update_dataset_split(dataset_id: str, payload: DatasetSplitIn):
         if conflict:
             raise HTTPException(409,"Identical content exists in another split. Move all exact duplicates into the same split.")
         c.execute("UPDATE datasets SET split=? WHERE id=?",(payload.split,dataset_id))
-    return {"updated":True,"id":dataset_id,"split":payload.split}
+        disabled_tasks=0
+        if payload.split!="train":
+            result=c.execute("UPDATE tasks SET enabled=0 WHERE source_dataset_id=? AND enabled=1",(dataset_id,))
+            disabled_tasks=result.rowcount
+    return {"updated":True,"id":dataset_id,"split":payload.split,
+            "disabled_generated_tasks":disabled_tasks}
 
 
 
