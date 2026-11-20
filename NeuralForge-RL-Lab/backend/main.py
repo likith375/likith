@@ -457,7 +457,7 @@ def _execute_training_locked(run_id, request):
         batch_size=request.get("batch_size") or int(cfg.get("batch_size","2"))
         duration_hours=float(request.get("duration_hours",0))
         deadline=time.monotonic()+duration_hours*3600 if duration_hours>0 else None
-        updates=0; losses=[]; feedback_updates=0; feedback_examples=0
+        updates=0; losses=[]; feedback_updates=0; feedback_examples=0; feedback_ids_to_consume=[]
         # Human ratings are the strongest available reward signal. They are
         # consumed only after a real adapter update succeeds.
         with connect() as c:
@@ -476,11 +476,8 @@ def _execute_training_locked(run_id, request):
             updates+=feedback_updates
             feedback_examples=len(pending_feedback)
             if feedback_loss is not None: losses.append(feedback_loss)
-            consumed_ids=[row["id"] for row in pending_feedback]
-            placeholders=",".join("?" for _ in consumed_ids)
+            feedback_ids_to_consume=[row["id"] for row in pending_feedback]
             with connect() as c:
-                c.execute(f"UPDATE human_feedback SET consumed_at=? WHERE id IN ({placeholders}) AND consumed_at IS NULL",
-                          [now(),*consumed_ids])
                 c.execute("UPDATE runs SET human_feedback_examples=?,feedback_updates=?,real_updates=? WHERE id=?",
                           (feedback_examples,feedback_updates,updates,run_id))
         samples=[]; total_reward=0.0; successes=0; supervised_cursor=0; completed_episodes=0
@@ -562,6 +559,10 @@ def _execute_training_locked(run_id, request):
                 c.execute("INSERT INTO checkpoints(id,run_id,label,kind,created_at,path,metadata_json) VALUES(?,?,?,?,?,?,?)",
                           (final_checkpoint_id,run_id,"Automatic checkpoint after training run","model_weights",
                            now(),final_checkpoint_path,json.dumps(final_metadata)))
+                if feedback_ids_to_consume:
+                    placeholders=",".join("?" for _ in feedback_ids_to_consume)
+                    c.execute(f"UPDATE human_feedback SET consumed_at=? WHERE id IN ({placeholders}) AND consumed_at IS NULL",
+                              [now(),*feedback_ids_to_consume])
         with connect() as c:
             state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
             stopped=bool(state and state["stop_requested"])
