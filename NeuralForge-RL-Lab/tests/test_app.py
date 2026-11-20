@@ -12,6 +12,9 @@ def setup_client(tmp_path, monkeypatch):
     examples.mkdir()
     monkeypatch.setattr(main, "DATA_INBOX", inbox)
     monkeypatch.setattr(main, "DATA_EXAMPLES_DIR", examples)
+    checkpoints = tmp_path / "checkpoints"
+    checkpoints.mkdir()
+    monkeypatch.setattr(main, "CHECKPOINT_DIR", checkpoints)
     main.init_db()
     return TestClient(main.app)
 
