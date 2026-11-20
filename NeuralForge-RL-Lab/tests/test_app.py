@@ -1192,3 +1192,15 @@ def test_conflicting_explicit_splits_for_duplicate_content_are_rejected():
     import pytest
     with pytest.raises(ValueError, match="Identical content"):
         main.prepared_dataset_rows(rows, "general", "leaky.jsonl")
+
+
+
+def test_training_preview_warns_about_duplicate_split_leakage(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("leak-train", "Train copy", "science", "train", "same exact answer", main.now()))
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("leak-test", "Test copy", "science", "test", "same exact answer", main.now()))
+    preview = client.get("/api/training/preview").json()
+    assert any("benchmark leakage is possible" in warning for warning in preview["warnings"])
