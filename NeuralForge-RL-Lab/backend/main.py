@@ -229,10 +229,10 @@ def evaluate_python_static(output: str, expected: str = "") -> dict[str, Any]:
     """Check Python syntax without executing generated code."""
     result = static_evaluate(output, expected, "python")
     text = (output or "").strip()
-    fences = re.findall(r"```(?:python|py)?\\s*([\\s\\S]*?)```", text, flags=re.IGNORECASE)
+    fences = re.findall(r"```(?:python|py)?\s*([\s\S]*?)```", text, flags=re.IGNORECASE)
     candidate = fences[0].strip() if fences else text
     looks_like_code = bool(re.search(
-        r"(?m)^\\s*(async\\s+def|def|class|from|import|@)|\\b(print|return|yield)\\s*\\(",
+        r"(?m)^\s*(async\s+def|def|class|from|import|@)|\b(print|return|yield)\s*\(",
         candidate
     ))
     if not looks_like_code:
