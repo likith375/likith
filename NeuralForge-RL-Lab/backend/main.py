@@ -288,7 +288,7 @@ def execute_training(run_id, request):
     with connect() as c:
         c.execute("UPDATE runs SET status='running',started_at=? WHERE id=?",(started,run_id))
         task_rows=c.execute("SELECT * FROM tasks WHERE enabled=1 ORDER BY created_at").fetchall()
-        train_rows=c.execute("SELECT name,category,content FROM datasets WHERE split='train' ORDER BY created_at").fetchall()
+        train_rows=c.execute("SELECT name,category,content FROM datasets WHERE split='train' ORDER BY created_at LIMIT 10000").fetchall()
     if not task_rows:
         with connect() as c:c.execute("UPDATE runs SET status='failed',error=?,finished_at=? WHERE id=?",("Create at least one enabled task.",now(),run_id))
         return
@@ -296,6 +296,9 @@ def execute_training(run_id, request):
         adapter=get_adapter()
         if adapter is None:
             raise RuntimeError("No model is connected. Configure an adapter or a Hugging Face model path first.")
+        model_name=getattr(adapter,"name",type(adapter).__name__)
+        with connect() as c:
+            c.execute("UPDATE runs SET model_name=? WHERE id=?",(model_name,run_id))
         cfg=setting_map()
         episodes=request["episodes"]
         batch_size=request.get("batch_size") or int(cfg.get("batch_size","2"))
