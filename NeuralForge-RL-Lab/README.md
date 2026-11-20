@@ -17,6 +17,7 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a P
 - Combined supervised fine-tuning on imported train-split examples plus reward-based updates when the adapter supports it.
 - A watched `data/inbox/` folder for dropping your own Luau and documentation files.
 - Dedicated `data/mistakes/mistakes.jsonl` append-only audit log.
+- Held-out validation and test benchmarks with stored per-example results.
 - A model-adapter contract for your own scratch-built Python AI.
 - An optional Hugging Face causal-LM adapter with REINFORCE-style policy-gradient updates.
 - Model checkpoint save and restore through the adapter.
