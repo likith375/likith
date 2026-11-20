@@ -1273,23 +1273,32 @@ def add_task(t:TaskIn):
 def generate_tasks_from_dataset(limit: int = 30):
     limit=max(1,min(limit,200))
     with connect() as c:
-        rows=c.execute("SELECT id,name,category,content FROM datasets WHERE split='train' ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
+        available=c.execute("SELECT COUNT(*) FROM datasets WHERE split='train'").fetchone()[0]
         existing={r["title"] for r in c.execute("SELECT title FROM tasks")}
+        query="""SELECT d.id,d.name,d.category,d.content FROM datasets d
+                 WHERE d.split='train'
+                   AND NOT EXISTS (SELECT 1 FROM tasks t WHERE t.source_dataset_id=d.id)
+                   AND NOT EXISTS (SELECT 1 FROM tasks t
+                                   JOIN datasets source ON source.id=t.source_dataset_id
+                                   WHERE source.category=d.category AND source.content=d.content)
+                 ORDER BY d.created_at DESC"""
         created=0
         seen_examples=set()
-        for row in rows:
+        for row in c.execute(query):
             content_key=(row["category"],hashlib.sha256(row["content"].encode("utf-8")).hexdigest())
             if content_key in seen_examples:
                 continue
-            seen_examples.add(content_key)
             title=("Practice: "+row["name"])[:180]
             if title in existing:
                 continue
+            seen_examples.add(content_key)
             prompt=f"Demonstrate and explain this subject from the uploaded training material: {row['name']}. Produce a correct, useful answer in the format appropriate to the subject."
             c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,source_dataset_id,created_at) VALUES(?,?,?,?,?,?,?,?)",
                       (str(uuid.uuid4()),title,prompt,row["content"],"easy",row["category"],row["id"],now()))
             existing.add(title); created+=1
-    return {"created":created,"available_examples":len(rows),"message":"Practice tasks generated from train-split examples only."}
+            if created>=limit:
+                break
+    return {"created":created,"available_examples":available,"message":"Practice tasks generated from train-split examples not already represented by a generated task."}
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: str):
