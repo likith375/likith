@@ -1346,8 +1346,10 @@ def run_report(run_id: str):
             MIN(score) AS lowest_score,MAX(score) AS highest_score,
             AVG(reward) AS average_attempt_reward
             FROM task_attempts WHERE run_id=?""",(run_id,)).fetchone()
-        attempts=c.execute("""SELECT a.id,a.task_id,t.title AS task_title,a.prompt,
-            a.output,a.score,a.reward,a.evaluator,a.checks_json,a.created_at
+        attempts=c.execute("""SELECT a.id,a.task_id,t.title AS task_title,
+            SUBSTR(a.prompt,1,1500) AS prompt_preview,
+            SUBSTR(a.output,1,1500) AS output_preview,
+            a.score,a.reward,a.evaluator,a.checks_json,a.created_at
             FROM task_attempts a LEFT JOIN tasks t ON t.id=a.task_id
             WHERE a.run_id=? ORDER BY a.created_at DESC LIMIT 100""",(run_id,)).fetchall()
         checkpoints=c.execute("""SELECT id,label,kind,created_at,metadata_json
