@@ -3,6 +3,10 @@ from backend import main
 
 def setup_client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DB", tmp_path / "test.sqlite3")
+    monkeypatch.setattr(main, "MISTAKE_LOG", tmp_path / "mistakes.jsonl")
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    monkeypatch.setattr(main, "DATA_INBOX", inbox)
     main.init_db()
     return TestClient(main.app)
 
@@ -56,3 +60,19 @@ def test_failed_run_without_adapter_is_not_reported_as_success(tmp_path, monkeyp
     assert run["status"] == "failed"
     assert "No model is connected" in run["error"]
     assert run["real_updates"] == 0
+
+def test_inbox_folder_import_is_deduplicated(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    (main.DATA_INBOX / "small.luau").write_text("local coins = 10", encoding="utf-8")
+    first = client.post("/api/datasets/import-folder").json()
+    second = client.post("/api/datasets/import-folder").json()
+    assert first["added"] == 1
+    assert second["added"] == 0
+    assert any(x["name"] == "Reference file: small.luau" for x in client.get("/api/datasets").json())
+
+def test_mistake_audit_file_is_jsonl(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    client.post("/api/mistakes", json={"prompt":"bad","output":"bad code"})
+    lines = main.MISTAKE_LOG.read_text(encoding="utf-8").splitlines()
+    import json
+    assert json.loads(lines[0])["event"] == "mistake_created"
