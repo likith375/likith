@@ -134,6 +134,13 @@ def init_db():
             for name, decl in wanted.items():
                 if name not in existing:
                     c.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+        c.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_datasets_split_category ON datasets(split,category);
+        CREATE INDEX IF NOT EXISTS idx_tasks_enabled_created ON tasks(enabled,created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_runs_status_created ON runs(status,created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_task_attempts_run_created ON task_attempts(run_id,created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_mistakes_task_created ON mistakes(task_id,created_at DESC);
+        """)
         # Keep the built-in Python seed aligned with the Python AST evaluator.
         c.execute("UPDATE datasets SET category='python' WHERE name='Python example' AND category='programming'")
         # Mark runs left active by a previous server process as interrupted.
