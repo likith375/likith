@@ -1052,7 +1052,7 @@ def export_feedback():
             ORDER BY f.created_at,f.id""")]
     def stream():
         for row in rows:
-            yield json.dumps(row,ensure_ascii=False,default=str)+"\\n"
+            yield json.dumps(row,ensure_ascii=False,default=str)+"\n"
     return StreamingResponse(stream(),media_type="application/x-ndjson",
         headers={"Content-Disposition":"attachment; filename=neuralforge-feedback.jsonl"})
 
