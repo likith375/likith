@@ -37,6 +37,7 @@ _adapter_instance = None
 _adapter_fingerprint = None
 _adapter_error = None
 RUN_SCHEDULER_LOCK = threading.Lock()
+MODEL_EXECUTION_LOCK = threading.RLock()
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -410,6 +411,12 @@ def save_mistake(task_id,prompt,output,evaluation,category="failed_tasks"):
     return mid
 
 def execute_training(run_id, request):
+    """Serialize training against generation and checkpoint operations."""
+    with MODEL_EXECUTION_LOCK:
+        return _execute_training_locked(run_id, request)
+
+
+def _execute_training_locked(run_id, request):
     started=now()
     with connect() as c:
         c.execute("UPDATE runs SET status='running',started_at=? WHERE id=?",(started,run_id))
@@ -1010,8 +1017,9 @@ def try_task(task_id: str):
         adapter=get_adapter()
         if adapter is None: raise HTTPException(400,"Connect a model before testing a task.")
         prompt=build_prompt(dict(task))
-        generated=adapter.generate(prompt,{"task_id":task_id,"difficulty":task["difficulty"],"category":task["category"],
-                                           "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
+        with MODEL_EXECUTION_LOCK:
+            generated=adapter.generate(prompt,{"task_id":task_id,"difficulty":task["difficulty"],"category":task["category"],
+                                               "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
         output=generated if isinstance(generated,str) else str(generated.get("text",""))
         evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
         attempt_id=record_attempt(task_id,"",prompt,output,evaluation)
@@ -1158,7 +1166,8 @@ def test_adapter():
         if adapter is None:
             raise HTTPException(400, "No model is configured.")
         sample = "Explain what a variable is, using one short example."
-        generated = adapter.generate(sample, {"category": "general", "max_new_tokens": 96, "diagnostic": True})
+        with MODEL_EXECUTION_LOCK:
+            generated = adapter.generate(sample, {"category": "general", "max_new_tokens": 96, "diagnostic": True})
         output = generated if isinstance(generated, str) else str(generated.get("text", ""))
         if not output.strip():
             raise RuntimeError("The connected model returned an empty response.")
@@ -1191,8 +1200,9 @@ def generate_once(payload: dict):
         if adapter is None:
             raise HTTPException(400, "Connect a model before generating.")
         full_prompt = build_prompt({"prompt": prompt, "category": category})
-        generated = adapter.generate(full_prompt, {"category": category,
-                                                    "max_new_tokens": int(setting_map().get("max_new_tokens", "384"))})
+        with MODEL_EXECUTION_LOCK:
+            generated = adapter.generate(full_prompt, {"category": category,
+                                                        "max_new_tokens": int(setting_map().get("max_new_tokens", "384"))})
         output = generated if isinstance(generated, str) else str(generated.get("text", ""))
         evaluation = evaluate_with_adapter(adapter, full_prompt, output, "", category)
         return {"output": output, "evaluation": evaluation, "model": getattr(adapter, "name", type(adapter).__name__)}
@@ -1245,7 +1255,8 @@ def save_checkpoint(payload:dict):
         adapter=get_adapter()
         if adapter is None: raise RuntimeError("No model adapter connected.")
         path=str(CHECKPOINT_DIR/f"{cid}")
-        metadata=adapter.save_checkpoint(path) or {}
+        with MODEL_EXECUTION_LOCK:
+            metadata=adapter.save_checkpoint(path) or {}
         if not Path(path).exists():
             raise RuntimeError("Adapter returned without creating a checkpoint directory.")
         kind="model_weights"
@@ -1268,7 +1279,8 @@ def restore_checkpoint(checkpoint_id:str):
     try:
         adapter=get_adapter()
         if adapter is None: raise RuntimeError("No model adapter connected.")
-        result=adapter.load_checkpoint(row["path"])
+        with MODEL_EXECUTION_LOCK:
+            result=adapter.load_checkpoint(row["path"])
         return {"restored":True,"result":result}
     except Exception as exc: raise HTTPException(400,str(exc))
 
@@ -1291,8 +1303,9 @@ def run_benchmark(split: str="validation", limit: int=100):
     for row in rows:
         prompt=build_prompt({"prompt":f"Answer or solve this training example: {row['name']}","category":row["category"]})
         try:
-            generated=adapter.generate(prompt,{"benchmark_split":split,"category":row["category"],
-                                               "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
+            with MODEL_EXECUTION_LOCK:
+                generated=adapter.generate(prompt,{"benchmark_split":split,"category":row["category"],
+                                                   "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
             output=generated if isinstance(generated,str) else str(generated.get("text",""))
             evaluation=evaluate_with_adapter(adapter, prompt, output, row["content"], row["category"])
             total+=evaluation["score"]; passed+=int(evaluation["score"]>=75)
