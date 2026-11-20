@@ -1544,3 +1544,31 @@ def test_start_training_rejects_missing_model_configuration(tmp_path, monkeypatc
     assert response.status_code == 400
     assert "Connect a model" in response.json()["detail"]
     assert client.get("/api/runs").json() == []
+
+
+
+def test_start_training_runs_after_preflight_passes(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    class ReadyAdapter:
+        name = "preflight-ready-adapter"
+        def generate(self, prompt, context=None): return "A generated response."
+        def evaluate(self, prompt, output, expected, domain):
+            return {"score": 80, "reward": 0.6, "checks": {}, "evaluator": "test"}
+        def train_step(self, batch): return {"updates": 1, "loss": 0.2}
+        def save_checkpoint(self, destination):
+            folder = Path(destination)
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "weights.bin").write_bytes(b"weights")
+            return {}
+        def load_checkpoint(self, source): return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: ReadyAdapter())
+    with main.connect() as db:
+        db.execute("INSERT INTO adapter_settings(key,value,updated_at) VALUES(?,?,?)",
+                   ("adapter_spec", "adapters.custom_adapter:load_adapter", main.now()))
+    response = client.post("/api/runs/start", json={
+        "episodes": 1, "batch_size": 1, "duration_hours": 0
+    })
+    assert response.status_code == 200
+    run = client.get("/api/runs/" + response.json()["id"]).json()
+    assert run["status"] == "completed"
+    assert run["real_updates"] >= 1
