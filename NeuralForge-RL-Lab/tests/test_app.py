@@ -681,9 +681,9 @@ def test_verified_mistake_corrections_are_reused_for_supervised_training(tmp_pat
     with main.connect() as db:
         db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
                    ("verified-correction-run", "queued", 1, main.now()))
-    main.execute_training("verified-correction-run", {"episodes": 1, "batch_size": 32})
+    main.execute_training("verified-correction-run", {"episodes": 1, "batch_size": 1})
     assert client.get("/api/runs/verified-correction-run").json()["status"] == "completed"
-    assert any(row["completion"] == correction for row in adapter.supervised)
+    assert adapter.supervised[0]["completion"] == correction
 
 
 
