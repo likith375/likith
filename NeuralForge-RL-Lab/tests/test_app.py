@@ -134,6 +134,7 @@ def test_validation_benchmark_never_calls_train_step(tmp_path, monkeypatch):
             return {}
     monkeypatch.setattr(main, "get_adapter", lambda: FakeAdapter())
     with main.connect() as db:
+        db.execute("DELETE FROM datasets WHERE split='validation'")
         db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
                    ("val-1","Create a part","instances","validation",'local part = Instance.new("Part")',main.now()))
     response = client.post("/api/benchmarks/run?split=validation")
