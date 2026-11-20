@@ -217,25 +217,24 @@ def get_adapter(force_reload=False):
             _adapter_instance, _adapter_fingerprint, _adapter_error = None, fingerprint, f"{type(exc).__name__}: {exc}"
             raise RuntimeError(_adapter_error) from exc
 
-def static_evaluate(output: str, expected: str = "") -> dict[str, Any]:
+def static_evaluate(output: str, expected: str = "", domain: str = "general") -> dict[str, Any]:
+    """Domain-neutral baseline evaluator; it never pretends static checks are runtime tests."""
     text = (output or "").strip()
     if not text:
-        return {"score":0.0,"reward":-1.0,"checks":{"non_empty":False},"expected_match":False,
-                "warning":"Static heuristic only; generated Luau was not executed."}
+        return {"score":0.0,"reward":-1.0,"checks":{"non_empty":False},
+                "expected_match":False,"warning":"Generic static heuristic only; no code or claim was executed."}
     checks = {
       "non_empty": True,
-      "luau_structure": any(x in text for x in ("local ","function","game:GetService","Connect(","return","Instance.new","task.wait")),
-      "no_placeholder": not any(x in text.lower() for x in ("todo","demo output","insert code here")),
-      "balanced_delimiters": all(text.count(a) >= text.count(b) for a,b in (("(",")"),("{","}"),("[","]"))),
+      "no_placeholder": not any(x in text.lower() for x in ("todo", "demo output", "insert code here", "lorem ipsum")),
+      "balanced_delimiters": all(text.count(x) >= text.count(y) for x,y in (("(",")"),("{","}"),("[","]"))),
     }
     expected_match = bool(expected.strip()) and expected.strip() in text
+    checks["reference_match"] = expected_match if expected.strip() else True
     raw = sum(checks.values()) / len(checks)
-    if expected_match:
-        raw = max(raw, 1.0)
     score = round(raw * 100, 1)
     return {"score":score,"reward":round((raw * 2)-1,4),"checks":checks,
             "expected_match":expected_match,
-            "warning":"Static heuristic only. This score does not prove Roblox runtime correctness."}
+            "warning":"Generic static heuristic only. It does not execute code, validate factual claims, or prove correctness."}
 
 def verified_examples(limit=6):
     with connect() as c:
@@ -262,16 +261,17 @@ def dataset_examples(category="general", limit=4):
 
 def build_prompt(task):
     verified = verified_examples()
-    references = dataset_examples(task.get("category","general"))
-    parts=[task["prompt"],"\n\nWrite valid Roblox Luau. Explain assumptions briefly and return code."]
+    domain = task.get("domain") or task.get("category") or "general"
+    references = dataset_examples(domain)
+    parts=[task["prompt"], "\n\nWork in the subject/domain: " + str(domain) + ". Use supplied context only when relevant. Follow the requested output format, state assumptions, and do not invent facts."]
     if references:
-        parts.append("\n\nRelevant reference examples from the training dataset (use as knowledge, not as code to copy blindly):")
+        parts.append("\n\nRelevant reference examples from uploaded training material:")
         for i,e in enumerate(references,1):
-            parts.append(f"Reference {i} [{e['category']}] {e['prompt']}:\n{e['content'][:1400]}")
+            parts.append("Reference " + str(i) + " [" + e["category"] + "] " + e["prompt"] + ":\n" + e["content"][:1400])
     if verified:
         parts.append("\n\nVerified examples from human-reviewed mistake corrections:")
         for i,e in enumerate(verified,1):
-            parts.append(f"Correction {i} task: {e['prompt']}\nVerified correction:\n{e['correction'][:1400]}")
+            parts.append("Correction " + str(i) + " task: " + e["prompt"] + "\nVerified correction:\n" + e["correction"][:1400])
     parts.append("\nNow solve the new task. Do not copy an unrelated example.")
     return "\n".join(parts)
 
@@ -316,7 +316,7 @@ def execute_training(run_id, request):
                 generated=adapter.generate(prompt, {"task_id":task["id"],"difficulty":task["difficulty"],"category":task["category"],
                                                    "max_new_tokens":int(cfg.get("max_new_tokens","384"))})
                 output=generated if isinstance(generated,str) else str(generated.get("text",""))
-                evaluation=static_evaluate(output,task["expected"])
+                evaluation=static_evaluate(output,task["expected"],task.get("category","general"))
                 reward=evaluation["reward"]
                 total_reward += reward
                 successes += int(evaluation["score"] >= 75)
@@ -517,7 +517,7 @@ def generate_tasks_from_dataset(limit: int = 30):
             title=("Practice: "+row["name"])[:180]
             if title in existing:
                 continue
-            prompt=f"Create a Roblox Luau solution that demonstrates this topic: {row['name']}. Use correct Roblox APIs, explain assumptions briefly, and return a complete code example."
+            prompt=f"Demonstrate and explain this subject from the uploaded training material: {row['name']}. Produce a correct, useful answer in the format appropriate to the subject."
             c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,created_at) VALUES(?,?,?,?,?,?,?)",
                       (str(uuid.uuid4()),title,prompt,row["content"],"easy",row["category"],now()))
             existing.add(title); created+=1
@@ -725,12 +725,12 @@ def run_benchmark(split: str="validation", limit: int=100):
     if not rows: raise HTTPException(400,f"No {split} examples are available.")
     details=[]; total=0.0; passed=0
     for row in rows:
-        prompt=build_prompt({"prompt":f"Write a Roblox Luau solution for: {row['name']}","category":row["category"]})
+        prompt=build_prompt({"prompt":f"Answer or solve this training example: {row['name']}","category":row["category"]})
         try:
             generated=adapter.generate(prompt,{"benchmark_split":split,"category":row["category"],
                                                "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
             output=generated if isinstance(generated,str) else str(generated.get("text",""))
-            evaluation=static_evaluate(output,row["content"])
+            evaluation=static_evaluate(output,row["content"],row["category"])
             total+=evaluation["score"]; passed+=int(evaluation["score"]>=75)
             details.append({"prompt":row["name"],"score":evaluation["score"],"expected_match":evaluation["expected_match"],
                             "output_preview":output[:1000],"checks":evaluation["checks"]})
