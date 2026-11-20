@@ -23,7 +23,7 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a m
 - A model-adapter contract for your own scratch-built Python AI.
 - An optional Hugging Face causal-LM adapter with LoRA-first parameter-efficient tuning, supervised updates, and REINFORCE-style policy-gradient updates.
 - Immutable per-task attempt history and an adaptive curriculum that prioritizes less-mastered tasks.
-- Model checkpoint save and restore through the adapter.
+- Automatic restorable model backup before each training run, plus manual checkpoint save and restore.
 - API documentation at `/docs`.
 - Automated tests and GitHub Actions workflow.
 - GitHub Codespaces development-container setup.
