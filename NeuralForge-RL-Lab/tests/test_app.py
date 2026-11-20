@@ -388,3 +388,41 @@ def test_openai_and_sharegpt_conversation_dataset_formats():
     assert openai_row["content"] == "Inertia is resistance to changes in motion."
     assert sharegpt_row["prompt"] == "human: What is 3 times 4?"
     assert sharegpt_row["content"] == "12"
+
+
+def test_adaptive_curriculum_weights_low_scoring_tasks_higher(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    first = client.get("/api/tasks").json()[0]
+    second = client.post("/api/tasks", json={
+        "title": "Second subject task", "prompt": "Explain a concept.",
+        "category": "science"
+    }).json()["id"]
+    for _ in range(3):
+        main.record_attempt(first["id"], "", "task", "output", {
+            "score": 20, "reward": -0.6, "evaluator": "test", "checks": {}
+        })
+        main.record_attempt(second, "", "task", "output", {
+            "score": 95, "reward": 0.9, "evaluator": "test", "checks": {}
+        })
+    captured = {}
+    def choose(population, weights, k):
+        captured.update({item["id"]: weight for item, weight in zip(population, weights)})
+        return [next(item for item in population if item["id"] == first["id"])]
+    monkeypatch.setattr(main.random, "choices", choose)
+
+    class TrainingAdapter:
+        name = "curriculum-test"
+        def generate(self, prompt, context=None):
+            return "A clear answer."
+        def train_step(self, batch):
+            return {"updates": 1, "loss": 0.1}
+        def save_checkpoint(self, destination):
+            return {}
+        def load_checkpoint(self, source):
+            return {}
+    monkeypatch.setattr(main, "get_adapter", lambda: TrainingAdapter())
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("curriculum-run", "queued", 1, main.now()))
+    main.execute_training("curriculum-run", {"episodes": 1, "batch_size": 1})
+    assert captured[first["id"]] > captured[second]
