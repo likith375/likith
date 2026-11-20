@@ -57,7 +57,7 @@ Never run untrusted generated code in the main API process.
 
 ## Training safety
 
-Start with a copy of your model. Use a small learning rate and small batches. Save a checkpoint before training, run a short experiment, then compare validation results. Stop if validation quality drops, the loss becomes non-finite, or the model starts repeating or emitting malformed code.
+NeuralForge saves an automatic restorable checkpoint before each run; the adapter must actually create the checkpoint directory or training will not begin. Keep these backups and also maintain an external copy of your original model. Use a small learning rate and small batches. Save a checkpoint before training, run a short experiment, then compare validation results. Stop if validation quality drops, the loss becomes non-finite, or the model starts repeating or emitting malformed code.
 
 ## Long training sessions
 
