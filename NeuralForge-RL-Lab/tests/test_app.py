@@ -4,9 +4,13 @@ from backend import main
 def setup_client(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "DB", tmp_path / "test.sqlite3")
     monkeypatch.setattr(main, "MISTAKE_LOG", tmp_path / "mistakes.jsonl")
+    monkeypatch.setattr(main, "DATA_DIR", tmp_path)
     inbox = tmp_path / "inbox"
+    examples = tmp_path / "examples"
     inbox.mkdir()
+    examples.mkdir()
     monkeypatch.setattr(main, "DATA_INBOX", inbox)
+    monkeypatch.setattr(main, "DATA_EXAMPLES_DIR", examples)
     main.init_db()
     return TestClient(main.app)
 
