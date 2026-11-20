@@ -121,7 +121,7 @@ Read `docs/rl-training.md` before interpreting the metrics.
 
 ## Important limitations
 
-- **Evaluation depends on the configured evaluator:** the default evaluator checks only basic text structure and reference matching. It cannot prove code works or factual claims are true. Python-domain tasks also receive a safe AST syntax check (without execution). Add a domain-specific `evaluate(prompt, output, expected, domain)` method to a trusted adapter for stronger checks. Never treat a generic heuristic score as a runtime pass.
+- **Evaluation depends on the configured evaluator:** the default evaluator checks only basic text structure and reference matching; without an answer key it gives a neutral score rather than inventing a pass. It cannot prove code works or factual claims are true. Python-domain tasks also receive a safe AST syntax check (without execution). Add a domain-specific `evaluate(prompt, output, expected, domain)` method to a trusted adapter for stronger checks. Never treat a generic heuristic score as a runtime pass.
 - **Reward quality matters:** the built-in static reward is a baseline. Better results require a carefully designed evaluator and reviewed task/reference data.
 - **REINFORCE is experimental:** it may be unstable, especially with small datasets, small models, or noisy rewards. Keep backups and compare held-out validation/test results.
 - **Local resources:** training speed and memory use depend on your model size, hardware, and batch settings.
