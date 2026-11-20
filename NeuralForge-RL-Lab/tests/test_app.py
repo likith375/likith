@@ -23,7 +23,7 @@ def test_health_and_seed_data(tmp_path, monkeypatch):
 def test_static_evaluator_is_explicitly_heuristic():
     result = main.static_evaluate("local coins = 10", "local coins = 10")
     assert result["score"] == 100
-    assert "not prove" in result["warning"]
+    assert "prove code/factual correctness" in result["warning"]
 
 def test_task_creation(tmp_path, monkeypatch):
     client = setup_client(tmp_path, monkeypatch)
@@ -228,7 +228,7 @@ def test_run_fails_if_adapter_does_not_report_real_updates(tmp_path, monkeypatch
     run = client.get("/api/runs/fake-no-update").json()
     assert run["status"] == "failed"
     assert run["real_updates"] == 0
-    assert "explicit updates count" in run["error"]
+    assert "updates field" in run["error"]
 
 
 def test_adapter_domain_evaluator_is_used():
@@ -264,3 +264,25 @@ def test_checkpoint_failure_is_not_saved_as_fake_metadata(tmp_path, monkeypatch)
     response = client.post("/api/checkpoints", json={"label": "should fail"})
     assert response.status_code == 400
     assert client.get("/api/checkpoints").json() == []
+
+
+def test_docx_upload_extracts_paragraphs_and_tables(tmp_path, monkeypatch):
+    from io import BytesIO
+    from docx import Document
+    client = setup_client(tmp_path, monkeypatch)
+    document = Document()
+    document.add_paragraph("Neural networks learn patterns from examples.")
+    table = document.add_table(rows=1, cols=2)
+    table.rows[0].cells[0].text = "Input"
+    table.rows[0].cells[1].text = "Output"
+    buffer = BytesIO()
+    document.save(buffer)
+    response = client.post("/api/datasets/import", files={
+        "file": ("lesson.docx", buffer.getvalue(),
+                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    })
+    assert response.status_code == 200
+    item = next(x for x in client.get("/api/datasets").json()
+                if x["name"] == "Reference material: lesson.docx")
+    assert "Neural networks learn patterns" in item["content"]
+    assert "Input | Output" in item["content"]
