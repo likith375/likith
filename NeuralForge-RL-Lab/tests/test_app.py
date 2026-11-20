@@ -295,3 +295,45 @@ def test_python_domain_checks_syntax_without_execution():
     assert invalid["checks"]["python_syntax_valid"] is False
     assert invalid["score"] <= 25
     assert "not executed" in invalid["warning"]
+
+
+def test_instruction_dataset_schema_imports_question_and_answer_fields(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    payload = b'{"examples":[{"question":"What is gravity?","answer":"Gravity attracts objects with mass.","category":"physics"},{"input":"Solve 2+2","target":"4","category":"mathematics"}]}'
+    response = client.post("/api/datasets/import", files={
+        "file": ("mixed.json", payload, "application/json")
+    })
+    assert response.status_code == 200
+    rows = client.get("/api/datasets").json()
+    gravity = next(x for x in rows if x["name"] == "What is gravity?")
+    arithmetic = next(x for x in rows if x["name"] == "Solve 2+2")
+    assert gravity["content"] == "Gravity attracts objects with mass."
+    assert gravity["category"] == "physics"
+    assert arithmetic["content"] == "4"
+    assert arithmetic["category"] == "mathematics"
+
+
+def test_long_document_chunks_stay_in_training_split(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    text = ("Paragraph about biology and cells. " * 100 + "\\n\\n" +
+            "Paragraph about genetics and DNA. " * 100)
+    response = client.post("/api/datasets/import", files={
+        "file": ("biology.md", text.encode(), "text/markdown")
+    })
+    assert response.status_code == 200
+    imported = [x for x in client.get("/api/datasets").json()
+                if x["name"].startswith("Reference material: biology.md")]
+    assert len(imported) > 1
+    assert {x["split"] for x in imported} == {"train"}
+    assert all(len(x["content"]) <= 3200 for x in imported)
+
+
+def test_dataset_normalizer_accepts_common_chat_fields():
+    row = main.normalize_dataset_row({
+        "user": "Explain energy", "assistant": "Energy is the ability to do work.",
+        "difficulty": "beginner"
+    }, 0, "science")
+    assert row["prompt"] == "Explain energy"
+    assert row["content"] == "Energy is the ability to do work."
+    assert row["category"] == "science"
+    assert row["metadata"]["difficulty"] == "beginner"
