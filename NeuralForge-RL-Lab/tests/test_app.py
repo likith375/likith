@@ -1722,3 +1722,20 @@ def test_dataset_import_rejects_unknown_split_labels():
         main.prepared_dataset_rows([
             {"prompt": "Prompt", "content": "Answer", "split": "development"}
         ], "general", "bad-split.jsonl")
+
+
+
+def test_try_task_disables_generated_task_with_held_out_source(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("heldout-source", "Held out", "science", "validation", "Reference", main.now()))
+        db.execute("""INSERT INTO tasks
+          (id,title,prompt,expected,difficulty,category,enabled,source_dataset_id,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?)""",
+          ("heldout-task", "Held out task", "Prompt", "Reference", "easy", "science",
+           1, "heldout-source", main.now()))
+    response = client.post("/api/tasks/heldout-task/try")
+    assert response.status_code == 409
+    task = next(row for row in client.get("/api/tasks").json() if row["id"] == "heldout-task")
+    assert task["enabled"] == 0
