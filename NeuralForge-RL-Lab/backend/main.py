@@ -1536,16 +1536,43 @@ def list_checkpoints():
 
 @app.post("/api/checkpoints/{checkpoint_id}/restore")
 def restore_checkpoint(checkpoint_id:str):
-    with connect() as c: row=c.execute("SELECT * FROM checkpoints WHERE id=?",(checkpoint_id,)).fetchone()
+    with connect() as c:
+        row=c.execute("SELECT * FROM checkpoints WHERE id=?",(checkpoint_id,)).fetchone()
     if not row: raise HTTPException(404,"Checkpoint not found.")
     if not row["path"]: raise HTTPException(400,"This is metadata-only; no model weights were saved.")
     try:
         adapter=get_adapter()
         if adapter is None: raise RuntimeError("No model adapter connected.")
         with MODEL_EXECUTION_LOCK:
-            result=adapter.load_checkpoint(row["path"])
-        return {"restored":True,"result":result}
-    except Exception as exc: raise HTTPException(400,str(exc))
+            # Preserve the currently loaded weights before attempting a potentially
+            # incompatible/corrupt restore. If loading fails, roll back in memory.
+            safety_id=str(uuid.uuid4())
+            safety_path=str(CHECKPOINT_DIR/("restore-safety-"+safety_id))
+            safety_metadata=adapter.save_checkpoint(safety_path) or {}
+            if not checkpoint_has_artifacts(safety_path):
+                raise RuntimeError("Restore aborted: could not create a safety checkpoint of the currently loaded model.")
+            with connect() as c:
+                c.execute("INSERT INTO checkpoints(id,run_id,label,kind,created_at,path,metadata_json) VALUES(?,?,?,?,?,?,?)",
+                          (safety_id,"","Automatic safety backup before restore","model_weights",
+                           now(),safety_path,json.dumps(safety_metadata)))
+            try:
+                result=adapter.load_checkpoint(row["path"])
+            except Exception as restore_error:
+                try:
+                    rollback_result=adapter.load_checkpoint(safety_path)
+                except Exception as rollback_error:
+                    raise RuntimeError(
+                        f"Checkpoint restore failed ({type(restore_error).__name__}: {restore_error}); "
+                        f"automatic rollback also failed ({type(rollback_error).__name__}: {rollback_error}). "
+                        f"Safety checkpoint: {safety_id}"
+                    ) from restore_error
+                raise RuntimeError(
+                    f"Checkpoint restore failed and the previous model was restored. "
+                    f"{type(restore_error).__name__}: {restore_error}; safety checkpoint: {safety_id}"
+                ) from restore_error
+        return {"restored":True,"result":result,"safety_checkpoint_id":safety_id}
+    except Exception as exc:
+        raise HTTPException(400,str(exc))
 
 @app.post("/api/benchmarks/run")
 def run_benchmark(split: str="validation", limit: int=100):
