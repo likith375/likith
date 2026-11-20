@@ -53,7 +53,7 @@ See `adapters/custom_adapter.py`. The training service calls:
 - `GET /api/datasets/stats` reports split/category counts, duplicate-content groups, empty examples and content-length statistics.
 - `GET /api/adapter/status` includes non-mutating model diagnostics when the adapter supplies them; `/api/adapter/test` generates a sample without changing weights.
 - `GET /api/training/preview` checks whether enabled tasks, train examples and a model adapter are configured, and reports pending feedback and verified corrections. It does not load the model or guarantee that a run will succeed.
-- Each run records `human_feedback_examples` and `feedback_updates` separately from its total `real_updates`.
+- Each run records `human_feedback_examples` and `feedback_updates` separately from its total `real_updates`. `GET /api/runs/{run_id}/report` combines run metrics, per-attempt scores and associated checkpoints for review.
 
 ## Human feedback loop
 
