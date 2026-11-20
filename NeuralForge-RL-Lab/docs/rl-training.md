@@ -80,3 +80,12 @@ Content-Type: application/json
 Ratings map to reward: 1 → -1, 2 → -0.5, 3 → 0, 4 → 0.5, 5 → 1. A neutral 3 is stored for history but is not placed in the reward replay queue. The next training run replays up to 64 pending rated attempts through the adapter's reward-learning hook before generating new samples. Feedback is marked consumed only after a successful, validated positive update count and a durable post-training checkpoint. If the adapter fails, the feedback remains pending. If a reviewer supplies a correction, it is stored as an unverified mistake candidate; it must pass the separate evidence-review workflow before it can enter supervised training. This makes reviewer feedback a durable learning signal rather than a dashboard-only comment.
 
 Use `GET /api/attempts` to inspect attempts and `GET /api/feedback?pending_only=true` to inspect the replay queue. Task deletion preserves attempt and feedback records.
+
+
+## Zero-gradient batches and failure recovery
+
+An adapter must always return an explicit non-negative integer `updates` count. A count of zero is valid when a batch contains no trainable response tokens or the policy-gradient advantage is zero; it is recorded as zero and never presented as learning. Human ratings are marked consumed only after at least one reward update has been reported and the updated model checkpoint has been saved.
+
+Before training, NeuralForge writes a non-empty model checkpoint. If a later training operation or final checkpoint fails, it attempts to reload that pre-training snapshot and records whether rollback succeeded. If the adapter cannot restore it, the run error identifies the failure and the safety checkpoint path.
+
+Restoring a saved checkpoint also creates a safety snapshot of the currently loaded model first. If the requested checkpoint fails to load, NeuralForge attempts to restore the previous model automatically.
