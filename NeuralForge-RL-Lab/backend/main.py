@@ -720,7 +720,14 @@ def dataset_stats():
 def training_preview():
     cfg=setting_map()
     with connect() as c:
-        task_count=c.execute("SELECT COUNT(*) FROM tasks WHERE enabled=1").fetchone()[0]
+        task_count=c.execute("""SELECT COUNT(*) FROM tasks t WHERE t.enabled=1
+            AND (COALESCE(t.source_dataset_id,'')=''
+                 OR EXISTS (SELECT 1 FROM datasets d
+                            WHERE d.id=t.source_dataset_id AND d.split='train'))""").fetchone()[0]
+        orphaned_tasks=c.execute("""SELECT COUNT(*) FROM tasks t WHERE t.enabled=1
+            AND COALESCE(t.source_dataset_id,'')<>''
+            AND NOT EXISTS (SELECT 1 FROM datasets d
+                            WHERE d.id=t.source_dataset_id AND d.split='train')""").fetchone()[0]
         split_counts={row["split"]:row["count"] for row in c.execute(
             "SELECT split,COUNT(*) AS count FROM datasets GROUP BY split")}
         pending=c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_at IS NULL AND reward<>0").fetchone()[0]
@@ -733,7 +740,8 @@ def training_preview():
              AND e.correction<>'' ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction)<>''""").fetchone()[0]
         active=c.execute("SELECT id,status FROM runs WHERE status IN ('queued','running') LIMIT 1").fetchone()
     warnings=[]
-    if not task_count: warnings.append("Create or generate at least one enabled task.")
+    if not task_count: warnings.append("Create or generate at least one enabled task with a valid train-split source.")
+    if orphaned_tasks: warnings.append(f"{orphaned_tasks} enabled generated task(s) have missing or non-train sources and will be disabled before training.")
     if not split_counts.get("train",0): warnings.append("Import training examples in the train split.")
     if not (cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip()):
         warnings.append("Connect a model adapter before training.")
@@ -741,7 +749,8 @@ def training_preview():
     if split_conflicts: warnings.append(f"{split_conflicts} exact duplicate content group(s) appear in multiple splits; benchmark leakage is possible.")
     if active: warnings.append("A training run is already "+active["status"]+".")
     return {"ready":not any(message.startswith(("Create","Import","Connect","A training")) for message in warnings),
-            "enabled_tasks":task_count,"dataset_splits":split_counts,
+            "enabled_tasks":task_count,"orphaned_generated_tasks":orphaned_tasks,
+            "dataset_splits":split_counts,
             "pending_human_feedback":pending,"verified_corrections":verified,
             "adapter_configured":bool(cfg.get("adapter_spec","").strip() or cfg.get("model_path","").strip()),
             "active_run":dict(active) if active else None,"warnings":warnings,
