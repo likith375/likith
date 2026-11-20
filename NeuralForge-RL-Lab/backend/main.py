@@ -213,14 +213,29 @@ def verified_examples(limit=6):
         """,(limit,)).fetchall()
     return [{"prompt":r["prompt"],"correction":r["correction"]} for r in rows]
 
+def dataset_examples(category="general", limit=4):
+    with connect() as c:
+        rows=c.execute("""
+          SELECT name,category,content FROM datasets
+          WHERE split='train' AND (category=? OR category='general')
+          ORDER BY created_at DESC LIMIT ?
+        """,(category,limit)).fetchall()
+    return [{"prompt":r["name"],"category":r["category"],"content":r["content"]} for r in rows]
+
 def build_prompt(task):
-    examples = verified_examples()
-    if not examples:
-        return task["prompt"] + "\n\nWrite valid Roblox Luau. Explain assumptions briefly and return code."
-    block = "\n\nVerified examples from previous human-reviewed corrections:\n"
-    for i,e in enumerate(examples,1):
-        block += f"Example {i} task: {e['prompt']}\nExample {i} correction:\n{e['correction'][:1800]}\n"
-    return task["prompt"] + block + "\nNow solve the new task. Do not copy an unrelated example."
+    verified = verified_examples()
+    references = dataset_examples(task.get("category","general"))
+    parts=[task["prompt"],"\n\nWrite valid Roblox Luau. Explain assumptions briefly and return code."]
+    if references:
+        parts.append("\n\nRelevant reference examples from the training dataset (use as knowledge, not as code to copy blindly):")
+        for i,e in enumerate(references,1):
+            parts.append(f"Reference {i} [{e['category']}] {e['prompt']}:\n{e['content'][:1400]}")
+    if verified:
+        parts.append("\n\nVerified examples from human-reviewed mistake corrections:")
+        for i,e in enumerate(verified,1):
+            parts.append(f"Correction {i} task: {e['prompt']}\nVerified correction:\n{e['correction'][:1400]}")
+    parts.append("\nNow solve the new task. Do not copy an unrelated example.")
+    return "\n".join(parts)
 
 def save_mistake(task_id,prompt,output,evaluation,category="failed_tasks"):
     mid=str(uuid.uuid4())
@@ -235,6 +250,7 @@ def execute_training(run_id, request):
     with connect() as c:
         c.execute("UPDATE runs SET status='running',started_at=? WHERE id=?",(started,run_id))
         task_rows=c.execute("SELECT * FROM tasks WHERE enabled=1 ORDER BY created_at").fetchall()
+        train_rows=c.execute("SELECT name,category,content FROM datasets WHERE split='train' ORDER BY created_at").fetchall()
     if not task_rows:
         with connect() as c:c.execute("UPDATE runs SET status='failed',error=?,finished_at=? WHERE id=?",("Create at least one enabled task.",now(),run_id))
         return
@@ -245,7 +261,7 @@ def execute_training(run_id, request):
         cfg=setting_map()
         episodes=request["episodes"]
         batch_size=request.get("batch_size") or int(cfg.get("batch_size","2"))
-        samples=[]; rewards=[]; total_reward=0.0; successes=0; updates=0; losses=[]
+        samples=[]; total_reward=0.0; successes=0; updates=0; losses=[]; supervised_cursor=0
         for episode in range(episodes):
             task=task_rows[episode % len(task_rows)]
             prompt=build_prompt(dict(task))
@@ -258,20 +274,29 @@ def execute_training(run_id, request):
                 total_reward += reward
                 successes += int(evaluation["score"] >= 75)
                 samples.append({"prompt":prompt,"completion":output,"reward":reward,"task_id":task["id"]})
-                rewards.append(reward)
                 if evaluation["score"] < float(cfg.get("reward_threshold","0.45"))*100:
                     save_mistake(task["id"],prompt,output,evaluation)
             except Exception as exc:
                 save_mistake(task["id"],prompt,"",{"error":str(exc)},"generation_errors")
                 raise
             if len(samples) >= batch_size or episode == episodes-1:
+                # First learn from curated train-split examples when the adapter supports SFT.
+                if train_rows and callable(getattr(adapter,"supervised_step",None)):
+                    sup_batch=[]
+                    for _ in range(min(batch_size,len(train_rows))):
+                        item=train_rows[supervised_cursor % len(train_rows)]; supervised_cursor+=1
+                        sup_batch.append({"prompt":item["name"],"completion":item["content"],"category":item["category"]})
+                    sup_result=adapter.supervised_step(sup_batch)
+                    if isinstance(sup_result,dict):
+                        updates += int(sup_result.get("updates",1))
+                        if sup_result.get("loss") is not None: losses.append(float(sup_result["loss"]))
                 result=adapter.train_step(samples)
                 if isinstance(result,dict):
                     updates += int(result.get("updates",1))
                     if result.get("loss") is not None: losses.append(float(result["loss"]))
                 else:
                     updates += 1
-                samples=[]; rewards=[]
+                samples=[]
             with connect() as c:
                 c.execute("UPDATE runs SET reward=?,success_rate=?,real_updates=?,avg_loss=? WHERE id=?",
                           (total_reward/(episode+1),successes/(episode+1),updates,
