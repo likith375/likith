@@ -362,7 +362,7 @@ def save_mistake(task_id,prompt,output,evaluation,category="failed_tasks"):
     mid=str(uuid.uuid4())
     with connect() as c:
         c.execute("INSERT INTO mistakes(id,task_id,prompt,output,category,evidence,correction,verification,evaluator,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                  (mid,task_id,prompt,output,category,json.dumps(evaluation), "", "unverified","static_heuristic",now()))
+                  (mid,task_id,prompt,output,category,json.dumps(evaluation), "", "unverified",str(evaluation.get("evaluator","generic_static_heuristic")),now()))
     append_mistake_log("mistake_created",{"id":mid,"task_id":task_id,"prompt":prompt,"output":output,"category":category,"evidence":evaluation})
     return mid
 
