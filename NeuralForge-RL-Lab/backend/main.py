@@ -578,7 +578,7 @@ def _execute_training_locked(run_id, request):
             state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
             stopped=bool(state and state["stop_requested"])
             duration_hit=bool(deadline and time.monotonic()>=deadline)
-            status="stopped" if stopped else "completed"
+            status="stopped" if (stopped or duration_hit) else "completed"
             note=("Stopped by user. " if stopped else "")+("Time budget reached. " if duration_hit else "")+f"Processed {completed_episodes} episodes. Training uses the configured adapter."
             if final_checkpoint_id:
                 note+=f" Final model checkpoint: {final_checkpoint_id}."
