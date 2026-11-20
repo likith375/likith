@@ -1739,3 +1739,19 @@ def test_try_task_disables_generated_task_with_held_out_source(tmp_path, monkeyp
     assert response.status_code == 409
     task = next(row for row in client.get("/api/tasks").json() if row["id"] == "heldout-task")
     assert task["enabled"] == 0
+
+
+
+def test_rejected_training_start_commits_cleanup_of_orphaned_tasks(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("UPDATE tasks SET enabled=0")
+        db.execute("""INSERT INTO tasks
+          (id,title,prompt,expected,difficulty,category,enabled,source_dataset_id,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?)""",
+          ("stale-before-start", "Stale", "Prompt", "Answer", "easy", "science",
+           1, "missing-source", main.now()))
+    response = client.post("/api/runs/start", json={"episodes": 1})
+    assert response.status_code == 400
+    task = next(row for row in client.get("/api/tasks").json() if row["id"] == "stale-before-start")
+    assert task["enabled"] == 0
