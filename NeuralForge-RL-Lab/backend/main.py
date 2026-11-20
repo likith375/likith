@@ -304,7 +304,12 @@ def evaluate_with_adapter(adapter, prompt: str, output: str, expected: str = "",
     reward = float(result.get("reward", (score / 50.0) - 1.0))
     if not (0.0 <= score <= 100.0) or not (-1.0 <= reward <= 1.0):
         raise ValueError("Adapter evaluator score must be 0..100 and reward must be -1..1.")
+    checks=result.get("checks",{})
+    if not isinstance(checks,dict):
+        raise ValueError("Adapter evaluator 'checks' must be a dictionary.")
     return {**result, "score": round(score, 2), "reward": round(reward, 4),
+            "expected_match": result.get("expected_match"),
+            "checks": checks,
             "evaluator": result.get("evaluator", type(adapter).__name__),
             "warning": result.get("warning", "Domain-specific adapter evaluator; inspect its implementation and evidence.")}
 
