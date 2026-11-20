@@ -1258,3 +1258,27 @@ def test_new_import_rejects_explicit_split_conflicting_with_existing_duplicate(t
             [{"prompt": "New copy", "content": "shared reference", "split": "test"}],
             "science", "second.jsonl", existing_content_splits=mapping
         )
+
+
+
+def test_bulk_split_repair_moves_all_exact_duplicates_together(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        for dataset_id, split in [
+            ("group-train", "train"), ("group-validation", "validation"), ("group-test", "test")
+        ]:
+            db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                       (dataset_id, dataset_id, "science", split, "same exact content", main.now()))
+        db.execute("""INSERT INTO tasks
+          (id,title,prompt,expected,difficulty,category,source_dataset_id,created_at)
+          VALUES(?,?,?,?,?,?,?,?)""",
+          ("group-task", "Generated task", "Prompt", "Answer", "easy", "science",
+           "group-train", main.now()))
+    response = client.patch("/api/datasets/group-train/split", json={
+        "split": "validation", "apply_to_exact_duplicates": True
+    })
+    assert response.status_code == 200
+    assert response.json()["updated_examples"] == 3
+    assert response.json()["disabled_generated_tasks"] == 1
+    stats = client.get("/api/datasets/stats").json()
+    assert stats["duplicate_split_conflicts"] == 0
