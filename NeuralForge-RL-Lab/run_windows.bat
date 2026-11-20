@@ -9,13 +9,13 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if not exist ".venv\\Scripts\\python.exe" (
+if not exist ".venv\Scripts\python.exe" (
     echo Creating NeuralForge virtual environment...
     py -3 -m venv .venv
     if errorlevel 1 goto :failed
 )
 
-call ".venv\\Scripts\\activate.bat"
+call ".venv\Scripts\activate.bat"
 echo Installing or checking NeuralForge dependencies...
 python -m pip install -r requirements.txt
 if errorlevel 1 goto :failed
