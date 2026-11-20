@@ -10,6 +10,7 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a m
 - JSONL, JSON, CSV, Jupyter notebooks, source code, markup, configuration, text, PDF (selectable text), and DOCX import, filtering, and JSONL export.
 - Train / validation / test split support.
 - Task studio with difficulty, category, expected behavior, and enable/disable controls.
+- Subject-aware reference retrieval and verified-correction filtering, so unrelated examples are less likely to enter a task prompt.
 - Append-only mistake records with a separate review-event history. Only verified corrections are added to future task prompts.
 - Domain-neutral static response heuristics with explicit warnings, a safe Python AST syntax check, and an optional trusted adapter evaluation hook for subject-specific verification.
 - Adapter dry-run testing, one-shot model generation, system diagnostics, and dataset/task deletion APIs.
