@@ -17,7 +17,7 @@ NeuralForge is the training software, not a prebuilt AI assistant. You bring a m
 - Background training runs, live run polling, reward and loss metrics.
 - Optional training time budget up to 24 hours, episode cap, and graceful stop control.
 - Combined supervised fine-tuning on imported train-split examples and evidence-verified mistake corrections, plus reward-based updates when the adapter supports it.
-- Human-in-the-loop learning: rate saved attempts from 1–5; pending ratings become reward samples in the next run and are consumed only after a post-training checkpoint is saved. Feedback history can be exported as JSONL.
+- Human-in-the-loop learning: rate saved attempts from 1–5 in the dashboard; pending ratings become reward samples in the next run and are consumed only after a real reward update and post-training checkpoint. Feedback history can be exported as JSONL.
 - Human-supplied corrections are quarantined as unverified candidates until a reviewer verifies their correction and evidence.
 - Immutable task-attempt and human-feedback history is preserved when a task is deleted.
 - An inbox-folder importer for supported source files, notebooks, datasets, PDFs, DOCX, XLSX and PPTX material from any subject.
