@@ -347,7 +347,7 @@ def import_inbox_folder():
     allowed={".jsonl",".json",".csv",".lua",".luau",".txt",".md"}
     added=0; skipped=[]; scanned=0
     for path in sorted(DATA_INBOX.iterdir()):
-        if not path.is_file() or path.suffix.lower() not in allowed:
+        if not path.is_file() or path.name.lower()=="readme.md" or path.suffix.lower() not in allowed:
             continue
         scanned+=1
         raw=path.read_bytes()
