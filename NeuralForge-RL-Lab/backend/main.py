@@ -117,25 +117,14 @@ def init_db():
         c.execute("UPDATE runs SET status='interrupted',finished_at=?,error=COALESCE(error,'Server restarted before this run finished.'),notes='Run interrupted by server restart; review checkpoint and resume with a new run.' WHERE status IN ('queued','running')",(now(),))
         if c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0] == 0:
             seed = [
-              ("Luau local variable","syntax","local coins = 10","train"),
-              ("Luau function","functions","local function add(a, b)\n    return a + b\nend","train"),
-              ("Players service","services",'local Players = game:GetService("Players")',"validation"),
-              ("Touched event","events","part.Touched:Connect(function(hit)\n    print(hit.Name)\nend)","test"),
+              ("Python example","programming","def add(a, b):\\n    return a + b","train"),
+              ("Science example","science","Photosynthesis converts light energy into chemical energy.","train"),
+              ("Mathematics example","mathematics","The area of a rectangle is length multiplied by width.","validation"),
+              ("Writing example","writing","A clear paragraph begins with a focused topic sentence.","test"),
             ]
             for name, cat, code, split in seed:
                 c.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
                           (str(uuid.uuid4()),name,cat,split,code,now()))
-        # Bootstrap the curated Luau starter corpus once, including for existing early-prototype databases.
-        if not c.execute("SELECT 1 FROM datasets WHERE metadata_json LIKE '%seed_corpus%' LIMIT 1").fetchone():
-            starter=ROOT / "examples" / "luau_training_starter.jsonl"
-            if starter.exists():
-                for line in starter.read_text(encoding="utf-8").splitlines():
-                    if not line.strip(): continue
-                    item=json.loads(line)
-                    c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",
-                              (str(uuid.uuid4()),item.get("prompt","Luau starter example"),item.get("category","luau"),
-                               item.get("split","train"),item.get("content",""),
-                               json.dumps({"seed_corpus":True,"source_file":"examples/luau_training_starter.jsonl"}),now()))
         if c.execute("SELECT COUNT(*) FROM tasks").fetchone()[0] == 0:
             c.execute("INSERT INTO tasks(id,title,prompt,expected,difficulty,category,created_at) VALUES(?,?,?,?,?,?,?)",
                       (str(uuid.uuid4()),"Create a health variable","Declare a local variable named health with value 100.",
