@@ -567,10 +567,11 @@ def _execute_training_locked(run_id, request):
                     sup_updates, sup_loss = validate_update_result(sup_result, "supervised_step")
                     updates += sup_updates
                     if sup_loss is not None: losses.append(sup_loss)
-                result=adapter.train_step(samples)
-                reward_updates, reward_loss = validate_update_result(result, "train_step")
-                updates += reward_updates
-                if reward_loss is not None: losses.append(reward_loss)
+                if samples:
+                    result=adapter.train_step(samples)
+                    reward_updates, reward_loss = validate_update_result(result, "train_step")
+                    updates += reward_updates
+                    if reward_loss is not None: losses.append(reward_loss)
                 samples=[]
             completed_episodes=episode+1
             with connect() as c:
