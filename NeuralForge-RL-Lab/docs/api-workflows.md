@@ -124,3 +124,19 @@ POST /api/checkpoints/CHECKPOINT_ID/restore
 ```
 
 Restoring a checkpoint changes the connected model state. Do not restore a checkpoint while another operation is using the model; model operations are serialized by the service.
+
+
+## Human feedback and exports
+
+1. List recent attempts with `GET /api/attempts?limit=100`.
+2. Submit a 1–5 rating with `POST /api/attempts/{attempt_id}/feedback`, using `rating`, `note`, optional `correction`, and optional `evidence`.
+3. Review any correction candidate in Mistake memory before it can be used as a verified correction example.
+4. Export all feedback and its linked attempt context with `GET /api/feedback/export` (newline-delimited JSON).
+
+A rating maps to reward `(rating - 3) / 2`. Ratings are not marked consumed unless the adapter reports a reward optimizer update and the updated model checkpoint is saved.
+
+## Checkpoint maintenance
+
+- `POST /api/checkpoints` saves a real model snapshot.
+- `POST /api/checkpoints/{checkpoint_id}/restore` first saves a safety copy of the current model and attempts rollback if the selected checkpoint cannot load.
+- `DELETE /api/checkpoints/{checkpoint_id}` removes the checkpoint record and its files, but only when the resolved path is inside the configured checkpoint directory.
