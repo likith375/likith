@@ -885,3 +885,21 @@ def test_pptx_import_extracts_slide_text(tmp_path, monkeypatch):
                 if "physics.pptx slide 1" in x["name"])
     assert "Newton's first law" in item["content"]
     assert item["split"] == "train"
+
+
+
+def test_dataset_export_preserves_metadata_and_ndjson_rows(tmp_path, monkeypatch):
+    import json
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("""INSERT INTO datasets
+          (id,name,category,split,content,metadata_json,created_at)
+          VALUES(?,?,?,?,?,?,?)""",
+          ("export-row", "Question", "science", "train", "Answer",
+           json.dumps({"source_file": "lesson.xlsx", "sheet": "Physics"}), main.now()))
+    response = client.get("/api/datasets/export")
+    assert response.status_code == 200
+    rows = [json.loads(line) for line in response.text.splitlines() if line.strip()]
+    exported = next(row for row in rows if row["prompt"] == "Question")
+    assert exported["metadata"]["source_file"] == "lesson.xlsx"
+    assert exported["metadata"]["sheet"] == "Physics"
