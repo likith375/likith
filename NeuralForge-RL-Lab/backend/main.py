@@ -108,7 +108,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS human_feedback(
           id TEXT PRIMARY KEY,attempt_id TEXT NOT NULL,rating INTEGER NOT NULL,
           reward REAL NOT NULL,note TEXT DEFAULT '',correction TEXT DEFAULT '',
-          evidence TEXT DEFAULT '',consumed_at TEXT,created_at TEXT NOT NULL);
+          evidence TEXT DEFAULT '',consumed_at TEXT,consumed_run_id TEXT,created_at TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_human_feedback_pending
           ON human_feedback(consumed_at,created_at);
         CREATE INDEX IF NOT EXISTS idx_human_feedback_attempt
@@ -126,6 +126,7 @@ def init_db():
                    "human_feedback_examples": "INTEGER DEFAULT 0",
                    "feedback_updates": "INTEGER DEFAULT 0"},
           "checkpoints": {"path": "TEXT DEFAULT ''", "metadata_json": "TEXT DEFAULT '{}'"},
+          "human_feedback": {"consumed_run_id": "TEXT"},
         }
         for table, wanted in migrations.items():
             existing = columns(c, table)
@@ -582,8 +583,8 @@ def _execute_training_locked(run_id, request):
                            now(),final_checkpoint_path,json.dumps(final_metadata)))
                 if feedback_ids_to_consume:
                     placeholders=",".join("?" for _ in feedback_ids_to_consume)
-                    c.execute(f"UPDATE human_feedback SET consumed_at=? WHERE id IN ({placeholders}) AND consumed_at IS NULL",
-                              [now(),*feedback_ids_to_consume])
+                    c.execute(f"UPDATE human_feedback SET consumed_at=?,consumed_run_id=? WHERE id IN ({placeholders}) AND consumed_at IS NULL",
+                              [now(),run_id,*feedback_ids_to_consume])
         with connect() as c:
             state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
             stopped=bool(state and state["stop_requested"])
