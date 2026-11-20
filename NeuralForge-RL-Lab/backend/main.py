@@ -1580,20 +1580,21 @@ def delete_checkpoint(checkpoint_id: str):
     if not row:
         raise HTTPException(404,"Checkpoint not found.")
     checkpoint_path=Path(row["path"]).resolve() if row["path"] else None
-    if checkpoint_path:
-        root=CHECKPOINT_DIR.resolve()
-        try:
-            relative=checkpoint_path.relative_to(root)
-        except ValueError:
-            raise HTTPException(400,"Refusing to delete a checkpoint outside the checkpoint directory.")
-        if not relative.parts:
-            raise HTTPException(400,"Refusing to delete the checkpoint directory itself.")
-        if checkpoint_path.is_dir():
-            shutil.rmtree(checkpoint_path)
-        elif checkpoint_path.exists():
-            checkpoint_path.unlink()
-    with connect() as c:
-        c.execute("DELETE FROM checkpoints WHERE id=?",(checkpoint_id,))
+    with MODEL_EXECUTION_LOCK:
+        if checkpoint_path:
+            root=CHECKPOINT_DIR.resolve()
+            try:
+                relative=checkpoint_path.relative_to(root)
+            except ValueError:
+                raise HTTPException(400,"Refusing to delete a checkpoint outside the checkpoint directory.")
+            if not relative.parts:
+                raise HTTPException(400,"Refusing to delete the checkpoint directory itself.")
+            if checkpoint_path.is_dir():
+                shutil.rmtree(checkpoint_path)
+            elif checkpoint_path.exists():
+                checkpoint_path.unlink()
+        with connect() as c:
+            c.execute("DELETE FROM checkpoints WHERE id=?",(checkpoint_id,))
     return {"deleted":True,"id":checkpoint_id,"files_removed":bool(checkpoint_path and not checkpoint_path.exists())}
 
 
