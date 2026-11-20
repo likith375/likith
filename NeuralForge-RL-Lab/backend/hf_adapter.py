@@ -96,6 +96,38 @@ class HuggingFaceREINFORCEAdapter:
         self.baseline = self.baseline_momentum * self.baseline + (1-self.baseline_momentum) * mean_reward
         return {"updates": 1, "loss": float(loss.detach().cpu()), "baseline": self.baseline}
 
+    def supervised_step(self, batch: list[dict[str, Any]]) -> dict[str, Any]:
+        """Supervised next-token update on imported prompt/completion examples."""
+        torch = self.torch
+        losses = []
+        self.model.train()
+        self.optimizer.zero_grad(set_to_none=True)
+        for sample in batch:
+            prompt = str(sample.get("prompt", ""))
+            completion = str(sample.get("completion", ""))
+            if not completion.strip():
+                continue
+            prompt_ids = self.tokenizer(prompt, add_special_tokens=True)["input_ids"]
+            completion_ids = self.tokenizer(completion, add_special_tokens=False)["input_ids"]
+            if not completion_ids:
+                continue
+            completion_ids = completion_ids[: max(1, self.max_length // 2)]
+            prompt_ids = prompt_ids[-max(1, self.max_length - len(completion_ids) - 1):]
+            ids = prompt_ids + completion_ids
+            labels = ([-100] * len(prompt_ids)) + completion_ids
+            input_ids = torch.tensor([ids], dtype=torch.long, device=self.device)
+            label_ids = torch.tensor([labels], dtype=torch.long, device=self.device)
+            attention = torch.ones_like(input_ids)
+            output = self.model(input_ids=input_ids, attention_mask=attention, labels=label_ids)
+            losses.append(output.loss)
+        if not losses:
+            return {"updates": 0, "loss": None, "note": "No usable supervised examples in this batch."}
+        loss = torch.stack(losses).mean()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+        self.optimizer.step()
+        return {"updates": 1, "loss": float(loss.detach().cpu()), "method": "supervised_reference_examples"}
+
     def save_checkpoint(self, destination: str) -> dict[str, Any]:
         path = Path(destination)
         path.mkdir(parents=True, exist_ok=True)
