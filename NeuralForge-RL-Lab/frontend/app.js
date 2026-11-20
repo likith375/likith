@@ -10,7 +10,26 @@ $("#refresh").onclick=()=>load(document.querySelector(".page.active")?.id||"over
 async function overview(){const d=await api("/api/overview");$("#stat-datasets").textContent=d.datasets;$("#stat-tasks").textContent=d.tasks;$("#stat-mistakes").textContent=d.mistakes;$("#stat-verified").textContent=d.verified+" verified";$("#stat-runs").textContent=d.completed_runs}
 let allDatasets=[];
 async function datasets(){allDatasets=await api("/api/datasets");renderDatasets()}
-function renderDatasets(){const split=$("#split-filter").value,term=$("#dataset-search").value.toLowerCase();const rows=allDatasets.filter(x=>(!split||x.split===split)&&(!term||(x.name+" "+x.category+" "+x.content).toLowerCase().includes(term)));$("#dataset-table").innerHTML=rows.length?'<table><thead><tr><th>EXAMPLE</th><th>CATEGORY</th><th>SPLIT</th><th>CONTENT</th><th></th></tr></thead><tbody>'+rows.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.category)+'</td><td><span class="split '+esc(x.split)+'">'+esc(x.split)+'</span></td><td><code>'+esc(x.content.slice(0,170))+'</code></td><td><button class="small danger" data-delete-dataset="'+esc(x.id)+'">Delete</button></td></tr>').join("")+'</tbody></table>':'<div class="empty">No examples match this filter.</div>';$("#dataset-table").querySelectorAll("[data-delete-dataset]").forEach(b=>b.onclick=async()=>{if(!confirm("Delete this dataset example?"))return;try{await api("/api/datasets/"+b.dataset.deleteDataset,{method:"DELETE"});toast("Dataset example deleted.");await datasets();await overview()}catch(x){toast(x.message,true)}})}
+function renderDatasets(){
+ const split=$("#split-filter").value,term=$("#dataset-search").value.toLowerCase();
+ const rows=allDatasets.filter(x=>(!split||x.split===split)&&(!term||(x.name+" "+x.category+" "+x.content).toLowerCase().includes(term)));
+ const splitSelect=x=>'<select data-update-split="'+esc(x.id)+'"><option value="train" '+(x.split==="train"?"selected":"")+'>Train</option><option value="validation" '+(x.split==="validation"?"selected":"")+'>Validation</option><option value="test" '+(x.split==="test"?"selected":"")+'>Test</option></select>';
+ $("#dataset-table").innerHTML=rows.length?'<table><thead><tr><th>EXAMPLE</th><th>CATEGORY</th><th>SPLIT</th><th>CONTENT</th><th></th></tr></thead><tbody>'+rows.map(x=>'<tr><td>'+esc(x.name)+'</td><td>'+esc(x.category)+'</td><td>'+splitSelect(x)+'</td><td><code>'+esc(x.content.slice(0,170))+'</code></td><td><button class="small danger" data-delete-dataset="'+esc(x.id)+'">Delete</button></td></tr>').join("")+'</tbody></table>':'<div class="empty">No examples match this filter.</div>';
+ $("#dataset-table").querySelectorAll("[data-delete-dataset]").forEach(b=>b.onclick=async()=>{
+  if(!confirm("Delete this dataset example? Its generated task will be disabled, while task history is preserved."))return;
+  try{const r=await api("/api/datasets/"+b.dataset.deleteDataset,{method:"DELETE"});toast("Dataset example deleted; "+r.disabled_generated_tasks+" generated tasks disabled.");await datasets();await overview()}
+  catch(x){toast(x.message,true)}
+ });
+ $("#dataset-table").querySelectorAll("[data-update-split]").forEach(sel=>sel.onchange=async()=>{
+  const id=sel.dataset.updateSplit,newSplit=sel.value;
+  try{
+   const r=await api("/api/datasets/"+id+"/split",{method:"PATCH",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({split:newSplit,apply_to_exact_duplicates:$("#apply-duplicate-split").checked})});
+   toast("Moved "+r.updated_examples+" example(s) to "+newSplit+"; "+r.disabled_generated_tasks+" generated tasks disabled.");
+   await datasets();
+  }catch(x){toast(x.message,true);await datasets()}
+ });
+}
 $("#split-filter").onchange=renderDatasets;$("#dataset-search").oninput=renderDatasets;
 $("#upload-form").onsubmit=async e=>{e.preventDefault();try{const fd=new FormData();fd.append("file",$("#dataset-file").files[0]);fd.append("category",$("#dataset-category").value);const r=await api("/api/datasets/import",{method:"POST",body:fd});toast("Imported "+r.added+" dataset examples.");e.target.reset();await datasets();await overview()}catch(x){toast(x.message,true)}};
 $("#import-inbox").onclick=async()=>{try{const r=await api("/api/datasets/import-folder",{method:"POST"});toast("Folders: "+r.added+" examples imported; "+r.skipped.length+" files skipped.");await datasets();await overview()}catch(x){toast(x.message,true)}};
