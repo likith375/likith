@@ -237,12 +237,12 @@ def static_evaluate(output: str, expected: str = "") -> dict[str, Any]:
 def verified_examples(limit=6):
     with connect() as c:
         rows = c.execute("""
-          SELECT m.prompt,COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id
+          SELECT m.prompt,COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id AND e.correction<>''
                           ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS correction
           FROM mistakes m
           WHERE COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
                           ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'
-            AND COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id
+            AND COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id AND e.correction<>''
                           ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction)<>''
           ORDER BY m.created_at DESC LIMIT ?
         """,(limit,)).fetchall()
