@@ -903,3 +903,13 @@ def test_dataset_export_preserves_metadata_and_ndjson_rows(tmp_path, monkeypatch
     exported = next(row for row in rows if row["prompt"] == "Question")
     assert exported["metadata"]["source_file"] == "lesson.xlsx"
     assert exported["metadata"]["sheet"] == "Physics"
+
+
+
+def test_dataset_metadata_round_trips_through_normalizer():
+    row = main.normalize_dataset_row({
+        "prompt": "Question", "content": "Answer", "category": "science",
+        "split": "train", "metadata": {"source_file": "lesson.xlsx", "sheet": "Physics"}
+    }, 0)
+    assert row["metadata"]["source_file"] == "lesson.xlsx"
+    assert row["metadata"]["sheet"] == "Physics"
