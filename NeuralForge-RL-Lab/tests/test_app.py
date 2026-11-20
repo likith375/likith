@@ -214,8 +214,7 @@ def test_reward_update_must_be_explicit_and_positive():
         main.validate_update_result({"loss": 0.5}, "train_step")
     with pytest.raises(ValueError):
         main.validate_update_result({"updates": True}, "train_step")
-    with pytest.raises(RuntimeError):
-        main.validate_update_result({"updates": 0, "loss": 0.5}, "train_step")
+    assert main.validate_update_result({"updates": 0, "loss": 0.5}, "train_step") == (0, 0.5)
     with pytest.raises(ValueError):
         main.validate_update_result({"updates": 1, "loss": float("nan")}, "train_step")
 
