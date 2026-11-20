@@ -2,12 +2,14 @@
 
 ## Combined learning loop
 
-The training controller combines two kinds of learning when the selected adapter supports both:
+The training controller uses an adaptive task curriculum and combines two kinds of learning when the selected adapter supports both:
+
+Before each episode, the curriculum weights tasks by recent performance (the last 20 attempts); tasks with lower recent scores receive more practice, while every enabled task retains a non-zero selection chance.
 
 1. **Supervised reference learning:** samples are drawn only from the dataset rows labelled `train`. The optional `supervised_step(batch)` hook teaches the model to predict the reference completion with teacher-forced next-token loss. Prompt tokens are masked out of the loss.
 2. **Reward-based policy learning:** the model generates a response to a task. The evaluator assigns a scalar reward. The adapter receives prompt, completion, reward and task ID, then performs a policy update through `train_step(batch)`.
 
-The built-in Hugging Face adapter implements both supervised next-token updates and a minimal REINFORCE-style policy-gradient baseline. The supervised and policy updates both count toward the run's update metric.
+The built-in Hugging Face adapter uses LoRA by default so only a small adapter parameter set is trainable. Rank, alpha, dropout and target modules are configurable. Full fine-tuning is available by disabling LoRA, but requires substantially more memory. The adapter implements both supervised next-token updates and a minimal REINFORCE-style policy-gradient baseline. The supervised and policy updates both count toward the run's update metric.
 
 The custom adapter may implement `supervised_step(batch)` as an optional hook. If it is absent, the lab still performs reward-based updates through `train_step(batch)`. Reward updates must return a dictionary with an explicit positive integer `updates` count. The lab no longer assumes that a missing return value means learning happened. Non-finite losses are rejected. Supervised updates may explicitly report zero when no examples were usable.
 
@@ -30,6 +32,7 @@ This is a minimal REINFORCE-style policy-gradient baseline. It is not PPO, RLHF 
 - Relevant examples are also retrieved into task prompts as few-shot context.
 - Validation and test rows are not used for gradient updates or prompt examples.
 - Human-reviewed corrections are added to future prompts only when their latest review event is `verified`.
+- Task attempts are stored immutably with scores, rewards and evaluator metadata; task performance history drives the adaptive curriculum.
 
 Keep train, validation and test examples distinct. Do not train on test examples or feed test answers into prompts. Remove duplicated or near-duplicated examples across splits.
 
