@@ -1069,9 +1069,8 @@ def test_neutral_rating_is_recorded_but_not_queued_for_training(tmp_path, monkey
 
 
 
-def test_evaluate_endpoint_uses_python_syntax_checker_without_model():
-    from fastapi.testclient import TestClient
-    client = TestClient(main.app)
+def test_evaluate_endpoint_uses_python_syntax_checker_without_model(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
     response = client.post("/api/evaluate", json={
         "domain": "python", "output": "def broken(:"
     })
