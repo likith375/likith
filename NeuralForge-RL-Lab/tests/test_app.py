@@ -1713,3 +1713,12 @@ def test_task_generation_deduplicates_same_content_and_existing_manual_answer(tm
           ("manual-existing", "Manual biology task", "Explain photosynthesis",
            "Shared photosynthesis answer", "easy", "biology", main.now()))
     assert client.post("/api/tasks/generate-from-dataset?limit=10").json()["created"] == 0
+
+
+
+def test_dataset_import_rejects_unknown_split_labels():
+    import pytest
+    with pytest.raises(ValueError, match="train, validation, or test"):
+        main.prepared_dataset_rows([
+            {"prompt": "Prompt", "content": "Answer", "split": "development"}
+        ], "general", "bad-split.jsonl")
