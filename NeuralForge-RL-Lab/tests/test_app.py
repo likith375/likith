@@ -1128,6 +1128,11 @@ def test_generated_task_does_not_retrieve_its_own_reference_answer(tmp_path, mon
           VALUES(?,?,?,?,?,?)""",
           ("only-source", "What is inertia?", "physics", "train",
            "INERTIA_SECRET_REFERENCE_12345", main.now()))
+        db.execute("""INSERT INTO datasets
+          (id,name,category,split,content,created_at)
+          VALUES(?,?,?,?,?,?)""",
+          ("duplicate-source", "Inertia duplicate", "physics", "train",
+           "INERTIA_SECRET_REFERENCE_12345", main.now()))
     generated = client.post("/api/tasks/generate-from-dataset?limit=10").json()
     assert generated["created"] == 1
     task = next(x for x in client.get("/api/tasks").json()
