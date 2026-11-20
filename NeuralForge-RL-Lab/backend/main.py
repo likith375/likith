@@ -222,7 +222,7 @@ def setting_map():
     with connect() as c:
         return {r["key"]:r["value"] for r in c.execute("SELECT key,value FROM adapter_settings")}
 
-def get_adapter(force_reload=False):
+def _get_adapter_locked(force_reload=False):
     global _adapter_instance, _adapter_fingerprint, _adapter_error
     cfg = setting_map()
     spec = cfg.get("adapter_spec","").strip()
@@ -252,6 +252,12 @@ def get_adapter(force_reload=False):
         except Exception as exc:
             _adapter_instance, _adapter_fingerprint, _adapter_error = None, fingerprint, f"{type(exc).__name__}: {exc}"
             raise RuntimeError(_adapter_error) from exc
+
+def get_adapter(force_reload=False):
+    # Loading large models must not overlap inference, training or checkpoint I/O.
+    with MODEL_EXECUTION_LOCK:
+        return _get_adapter_locked(force_reload)
+
 
 def static_evaluate(output: str, expected: str = "", domain: str = "general") -> dict[str, Any]:
     """Conservative text heuristic: without a reference, return neutral rather than fake success."""
@@ -1423,10 +1429,15 @@ def set_adapter_config(config:AdapterConfig):
             active=c.execute("SELECT id,status FROM runs WHERE status IN ('queued','running') LIMIT 1").fetchone()
             if active:
                 raise HTTPException(409,"Model configuration cannot change while a training run is active.")
-            for k,v in values.items():
-                c.execute("INSERT INTO adapter_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
-                          (k,str(v),now()))
-        with _adapter_lock: _adapter_instance=None; _adapter_fingerprint=None
+        # Serialize config changes with generation and checkpoint operations.
+        with MODEL_EXECUTION_LOCK:
+            with connect() as c:
+                for k,v in values.items():
+                    c.execute("INSERT INTO adapter_settings(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+                              (k,str(v),now()))
+            with _adapter_lock:
+                _adapter_instance=None
+                _adapter_fingerprint=None
     return {"saved":True,"restart_required":False,"message":"Configuration saved. The adapter loads when a training run starts."}
 
 @app.get("/api/adapter/status")
