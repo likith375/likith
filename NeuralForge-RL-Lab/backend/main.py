@@ -593,7 +593,7 @@ def _execute_training_locked(run_id, request):
             except Exception as exc:
                 save_mistake(task["id"],prompt,"",{"error":str(exc)},"generation_errors")
                 raise
-            if len(samples) >= batch_size or episode == episodes-1:
+            if (episode + 1) % batch_size == 0 or episode == episodes-1:
                 # First learn from curated train-split examples when the adapter supports SFT.
                 if supervised_rows and callable(getattr(adapter,"supervised_step",None)):
                     sup_batch=[]
