@@ -936,7 +936,7 @@ def export_datasets():
                 metadata={}
             yield json.dumps({"prompt":row["name"],"category":row["category"],
                               "split":row["split"],"content":row["content"],
-                              "metadata":metadata},ensure_ascii=False)+"\\n"
+                              "metadata":metadata},ensure_ascii=False)+"\n"
     return StreamingResponse(stream(),media_type="application/x-ndjson",headers={"Content-Disposition":"attachment; filename=neuralforge-dataset.jsonl"})
 
 @app.delete("/api/datasets/{dataset_id}")
