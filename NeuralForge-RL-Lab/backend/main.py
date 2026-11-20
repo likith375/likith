@@ -1604,6 +1604,13 @@ def restore_checkpoint(checkpoint_id:str):
         row=c.execute("SELECT * FROM checkpoints WHERE id=?",(checkpoint_id,)).fetchone()
     if not row: raise HTTPException(404,"Checkpoint not found.")
     if not row["path"]: raise HTTPException(400,"This is metadata-only; no model weights were saved.")
+    checkpoint_path=Path(row["path"]).resolve()
+    try:
+        checkpoint_path.relative_to(CHECKPOINT_DIR.resolve())
+    except ValueError:
+        raise HTTPException(400,"Refusing to restore a checkpoint outside the checkpoint directory.")
+    if not checkpoint_has_artifacts(checkpoint_path):
+        raise HTTPException(400,"Checkpoint files are missing or empty.")
     try:
         adapter=get_adapter()
         if adapter is None: raise RuntimeError("No model adapter connected.")
@@ -1620,7 +1627,7 @@ def restore_checkpoint(checkpoint_id:str):
                           (safety_id,"","Automatic safety backup before restore","model_weights",
                            now(),safety_path,json.dumps(safety_metadata)))
             try:
-                result=adapter.load_checkpoint(row["path"])
+                result=adapter.load_checkpoint(str(checkpoint_path))
             except Exception as restore_error:
                 try:
                     rollback_result=adapter.load_checkpoint(safety_path)
