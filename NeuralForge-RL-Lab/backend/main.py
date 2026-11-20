@@ -1324,6 +1324,32 @@ def get_run(run_id:str):
         if not row: raise HTTPException(404,"Run not found.")
         return dict(row)
 
+@app.get("/api/runs/{run_id}/report")
+def run_report(run_id: str):
+    with connect() as c:
+        run=c.execute("SELECT * FROM runs WHERE id=?",(run_id,)).fetchone()
+        if not run:
+            raise HTTPException(404,"Run not found.")
+        stats=c.execute("""SELECT COUNT(*) AS attempts,AVG(score) AS average_score,
+            MIN(score) AS lowest_score,MAX(score) AS highest_score,
+            AVG(reward) AS average_attempt_reward
+            FROM task_attempts WHERE run_id=?""",(run_id,)).fetchone()
+        attempts=c.execute("""SELECT a.id,a.task_id,t.title AS task_title,a.prompt,
+            a.output,a.score,a.reward,a.evaluator,a.checks_json,a.created_at
+            FROM task_attempts a LEFT JOIN tasks t ON t.id=a.task_id
+            WHERE a.run_id=? ORDER BY a.created_at DESC LIMIT 100""",(run_id,)).fetchall()
+        checkpoints=c.execute("""SELECT id,label,kind,created_at,metadata_json
+            FROM checkpoints WHERE run_id=? ORDER BY created_at""",(run_id,)).fetchall()
+    return {"run":dict(run),"attempt_stats":{
+                "attempts":stats["attempts"],
+                "average_score":round(stats["average_score"],2) if stats["average_score"] is not None else None,
+                "lowest_score":stats["lowest_score"],"highest_score":stats["highest_score"],
+                "average_attempt_reward":round(stats["average_attempt_reward"],4) if stats["average_attempt_reward"] is not None else None},
+            "recent_attempts":[dict(row) for row in attempts],
+            "checkpoints":[dict(row) for row in checkpoints],
+            "note":"Attempt scores are only as reliable as the evaluator named on each attempt."}
+
+
 @app.post("/api/checkpoints")
 def save_checkpoint(payload:dict):
     label=str(payload.get("label","Manual checkpoint"))[:160]
