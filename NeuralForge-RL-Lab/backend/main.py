@@ -1044,6 +1044,19 @@ def list_feedback(pending_only: bool = False, limit: int = 200):
     with connect() as c: return [dict(row) for row in c.execute(query,(limit,))]
 
 
+@app.get("/api/feedback/export")
+def export_feedback():
+    with connect() as c:
+        rows=[dict(row) for row in c.execute("""SELECT f.*,a.task_id,a.prompt,a.output
+            FROM human_feedback f JOIN task_attempts a ON a.id=f.attempt_id
+            ORDER BY f.created_at,f.id""")]
+    def stream():
+        for row in rows:
+            yield json.dumps(row,ensure_ascii=False,default=str)+"\\n"
+    return StreamingResponse(stream(),media_type="application/x-ndjson",
+        headers={"Content-Disposition":"attachment; filename=neuralforge-feedback.jsonl"})
+
+
 @app.get("/api/tasks/performance")
 def task_performance():
     with connect() as c:
