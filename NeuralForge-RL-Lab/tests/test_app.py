@@ -840,3 +840,48 @@ def test_feedback_rating_requires_integer_between_one_and_five(tmp_path, monkeyp
     too_high = client.post(f"/api/attempts/{attempt_id}/feedback", json={"rating": 6})
     assert fractional.status_code == 422
     assert too_high.status_code == 422
+
+
+
+def test_xlsx_import_extracts_question_answer_rows(tmp_path, monkeypatch):
+    from io import BytesIO
+    from openpyxl import Workbook
+    client = setup_client(tmp_path, monkeypatch)
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Physics"
+    sheet.append(["question", "answer", "category"])
+    sheet.append(["What is inertia?", "Resistance to a change in motion.", "physics"])
+    buffer = BytesIO()
+    workbook.save(buffer)
+    response = client.post("/api/datasets/import", files={
+        "file": ("physics.xlsx", buffer.getvalue(),
+                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    })
+    assert response.status_code == 200
+    item = next(x for x in client.get("/api/datasets").json()
+                if x["name"] == "What is inertia?")
+    assert item["content"] == "Resistance to a change in motion."
+    assert item["category"] == "physics"
+
+
+def test_pptx_import_extracts_slide_text(tmp_path, monkeypatch):
+    from io import BytesIO
+    from pptx import Presentation
+    from pptx.util import Inches
+    client = setup_client(tmp_path, monkeypatch)
+    presentation = Presentation()
+    slide = presentation.slides.add_slide(presentation.slide_layouts[5])
+    textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(2))
+    textbox.text_frame.text = "Newton's first law describes inertia."
+    buffer = BytesIO()
+    presentation.save(buffer)
+    response = client.post("/api/datasets/import", files={
+        "file": ("physics.pptx", buffer.getvalue(),
+                 "application/vnd.openxmlformats-officedocument.presentationml.presentation")
+    })
+    assert response.status_code == 200
+    item = next(x for x in client.get("/api/datasets").json()
+                if "physics.pptx slide 1" in x["name"])
+    assert "Newton's first law" in item["content"]
+    assert item["split"] == "train"
