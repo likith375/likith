@@ -641,11 +641,14 @@ def test_dataset_stats_report_splits_categories_and_duplicates(tmp_path, monkeyp
                    ("dup-a", "Duplicate A", "physics", "train", "same reference", main.now()))
         db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
                    ("dup-b", "Duplicate B", "physics", "train", "same reference", main.now()))
+        db.execute("INSERT INTO datasets(id,name,category,split,content,created_at) VALUES(?,?,?,?,?,?)",
+                   ("dup-c", "Duplicate C", "physics", "test", "same reference", main.now()))
     stats = client.get("/api/datasets/stats").json()
     assert stats["total"] >= 6
     assert stats["by_split"]["train"] >= 3
     assert any(x["category"] == "physics" for x in stats["by_category"])
     assert stats["duplicate_content_groups"] == 1
+    assert stats["duplicate_split_conflicts"] == 1
     assert stats["content_characters"]["max"] >= len("same reference")
 
 
