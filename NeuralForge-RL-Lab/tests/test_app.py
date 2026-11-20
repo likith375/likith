@@ -112,6 +112,7 @@ def test_training_uses_supervised_and_reward_updates(tmp_path, monkeypatch):
             return {"updates": 1, "loss": 0.1}
         def save_checkpoint(self, destination):
             Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"test weights")
             return {"saved": destination}
         def load_checkpoint(self, source):
             return {"loaded": source}
@@ -229,6 +230,7 @@ def test_run_fails_if_adapter_does_not_report_real_updates(tmp_path, monkeypatch
             return {"loss": 0.25}  # No explicit update count.
         def save_checkpoint(self, destination):
             Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"test weights")
             return {"saved": destination}
         def load_checkpoint(self, source):
             return {}
@@ -433,6 +435,7 @@ def test_adaptive_curriculum_weights_low_scoring_tasks_higher(tmp_path, monkeypa
             return {"updates": 1, "loss": 0.1}
         def save_checkpoint(self, destination):
             Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"test weights")
             return {"saved": destination}
         def load_checkpoint(self, source):
             return {}
@@ -557,6 +560,7 @@ def test_training_consumes_human_ratings_only_after_real_update(tmp_path, monkey
             return {"updates": 1, "loss": 0.2}
         def save_checkpoint(self, destination):
             Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"test weights")
             return {"saved": destination}
         def load_checkpoint(self, source): return {}
     adapter = FeedbackAdapter()
@@ -613,6 +617,7 @@ def test_failed_human_feedback_update_stays_pending(tmp_path, monkeypatch):
         def train_step(self, batch): raise RuntimeError("optimizer failure")
         def save_checkpoint(self, destination):
             Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"test weights")
             return {}
         def load_checkpoint(self, source): return {}
     monkeypatch.setattr(main, "get_adapter", lambda: FailingAdapter())
@@ -674,6 +679,7 @@ def test_verified_mistake_corrections_are_reused_for_supervised_training(tmp_pat
         def train_step(self, batch): return {"updates": 1, "loss": 0.1}
         def save_checkpoint(self, destination):
             Path(destination).mkdir(parents=True, exist_ok=True)
+            (Path(destination) / "weights.bin").write_bytes(b"test weights")
             return {}
         def load_checkpoint(self, source): return {}
     adapter = CorrectionAdapter()
@@ -741,6 +747,7 @@ def test_post_training_checkpoint_failure_is_reported(tmp_path, monkeypatch):
             self.saves += 1
             if self.saves == 1:
                 Path(destination).mkdir(parents=True, exist_ok=True)
+                (Path(destination) / "weights.bin").write_bytes(b"test weights")
                 return {"saved": destination}
             return {"error": "simulated final save failure"}
         def load_checkpoint(self, source): return {}
