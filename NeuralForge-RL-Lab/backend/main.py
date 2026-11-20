@@ -308,33 +308,57 @@ def validate_update_result(result: Any, operation: str) -> tuple[int, float | No
     return updates, loss
 
 
-def verified_examples(limit=6):
+def retrieval_terms(value: str) -> set[str]:
+    stop={"the","and","for","with","from","this","that","what","when","where","which","your","you","are","was","were","how","why","into","about","using","use","make","create","explain","write","show","give"}
+    return {token for token in re.findall(r"[a-z0-9_+#.-]{2,}",str(value or "").lower()) if token not in stop}
+
+
+def verified_examples(limit=6, category: str | None=None):
     with connect() as c:
         rows = c.execute("""
-          SELECT m.prompt,COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id AND e.correction<>''
-                          ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS correction
-          FROM mistakes m
+          SELECT m.prompt,
+            COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id AND e.correction<>''
+                            ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction) AS correction,
+            COALESCE(NULLIF(t.category,''),m.category) AS domain
+          FROM mistakes m LEFT JOIN tasks t ON t.id=m.task_id
           WHERE COALESCE((SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
                           ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'
             AND COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id AND e.correction<>''
                           ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction)<>''
-          ORDER BY m.created_at DESC LIMIT ?
-        """,(limit,)).fetchall()
-    return [{"prompt":r["prompt"],"correction":r["correction"]} for r in rows]
+          ORDER BY m.created_at DESC LIMIT 500
+        """).fetchall()
+    if category:
+        matching=[row for row in rows if row["domain"] in (category,"general")]
+        rows=matching
+    return [{"prompt":r["prompt"],"correction":r["correction"]} for r in rows[:limit]]
 
-def dataset_examples(category="general", limit=4):
+
+def dataset_examples(category="general", prompt: str="", limit=4):
     with connect() as c:
         rows=c.execute("""
-          SELECT name,category,content FROM datasets
-          WHERE split='train' AND (category=? OR category='general')
-          ORDER BY created_at DESC LIMIT ?
-        """,(category,limit)).fetchall()
-    return [{"prompt":r["name"],"category":r["category"],"content":r["content"]} for r in rows]
+          SELECT name,category,content,created_at FROM datasets
+          WHERE split='train' ORDER BY created_at DESC LIMIT 1000
+        """).fetchall()
+    query_terms=retrieval_terms(str(category)+" "+str(prompt))
+    scored=[]
+    for row in rows:
+        name_terms=retrieval_terms(row["name"])
+        content_terms=retrieval_terms(row["content"][:5000])
+        example_category=str(row["category"]).lower()
+        score=(5.0 if example_category==str(category).lower() else
+               1.0 if example_category=="general" else 0.0)
+        score += 3.0*len(query_terms & name_terms)
+        score += 0.35*len(query_terms & content_terms)
+        scored.append((score,row["created_at"],row))
+    scored.sort(key=lambda item:(item[0],item[1]),reverse=True)
+    # If there is no lexical/category match, recent examples remain a small fallback.
+    return [{"prompt":r["name"],"category":r["category"],"content":r["content"]}
+            for _,_,r in scored[:limit]]
 
 def build_prompt(task):
-    verified = verified_examples()
     domain = task.get("domain") or task.get("category") or "general"
-    references = dataset_examples(domain)
+    verified = verified_examples(category=domain)
+    references = dataset_examples(domain, task.get("prompt",""))
     parts=[task["prompt"], "\n\nWork in the subject/domain: " + str(domain) + ". Use supplied context only when relevant. Follow the requested output format, state assumptions, and do not invent facts."]
     if references:
         parts.append("\n\nRelevant reference examples from uploaded training material:")
