@@ -465,6 +465,67 @@ DATASET_EXTENSIONS = {
 }
 TEXT_EXTENSIONS = DATASET_EXTENSIONS - {".jsonl", ".json", ".csv", ".ipynb"}
 
+def chunk_reference_text(text: str, max_chars: int = 3200) -> list[str]:
+    """Split prose on paragraph boundaries so long documents fit model context."""
+    paragraphs=[part.strip() for part in re.split(r"\\n\\s*\\n", text or "") if part.strip()]
+    chunks=[]; current=""
+    for paragraph in paragraphs:
+        if len(paragraph)>max_chars:
+            if current:
+                chunks.append(current); current=""
+            lines=paragraph.splitlines()
+            piece=""
+            for line in lines:
+                if piece and len(piece)+len(line)+1>max_chars:
+                    chunks.append(piece); piece=""
+                piece=(piece+"\\n"+line).strip()
+            if piece: chunks.append(piece)
+            continue
+        candidate=(current+"\\n\\n"+paragraph).strip() if current else paragraph
+        if len(candidate)>max_chars and current:
+            chunks.append(current); current=paragraph
+        else:
+            current=candidate
+    if current: chunks.append(current)
+    return chunks or ([text.strip()] if (text or "").strip() else [])
+
+
+def normalize_dataset_row(row: dict[str, Any], index: int, default_category: str = "general") -> dict[str, Any] | None:
+    """Accept common instruction-tuning and generic knowledge dataset schemas."""
+    prompt_keys=("prompt","instruction","question","input","user","title","name")
+    content_keys=("content","code","completion","output","response","answer","target","assistant","text")
+    prompt=next((str(row.get(k) or "").strip() for k in prompt_keys if row.get(k) is not None and str(row.get(k)).strip()),f"Example {index+1}")
+    content=next((str(row.get(k) or "").strip() for k in content_keys if row.get(k) is not None and str(row.get(k)).strip()),"")
+    if not content:
+        return None
+    return {"prompt":prompt[:300],"content":content,
+            "category":str(row.get("category") or default_category)[:80],
+            "split":str(row.get("split") or "").lower(),
+            "metadata":{k:v for k,v in row.items() if k not in prompt_keys+content_keys+("category","split")}}
+
+
+def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, source_name: str,
+                          digest: str | None = None, document_chunks: bool = False) -> list[tuple]:
+    """Normalize imported schemas and prevent chunks of one document leaking across splits."""
+    prepared=[]
+    for index,row in enumerate(rows):
+        if not isinstance(row,dict): continue
+        item=normalize_dataset_row(row,index,default_category)
+        if not item: continue
+        split=item["split"]
+        if split not in ("train","validation","test"):
+            # A single document is a reference corpus, not three independent examples.
+            split="train" if document_chunks else ("validation" if index%10==8 else "test" if index%10==9 else "train")
+        chunks=chunk_reference_text(item["content"]) if document_chunks else [item["content"]]
+        for chunk_index,chunk in enumerate(chunks,1):
+            name=item["prompt"] if len(chunks)==1 else f"{item['prompt']} (part {chunk_index}/{len(chunks)})"
+            metadata={"source_file":source_name,"row_metadata":item["metadata"]}
+            if digest: metadata["sha256"]=digest
+            if len(chunks)>1: metadata["chunk_index"]=chunk_index; metadata["chunk_count"]=len(chunks)
+            prepared.append((str(uuid.uuid4()),name,item["category"],split,chunk,json.dumps(metadata,ensure_ascii=False),now()))
+    return prepared
+
+
 def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
     suffix = Path(filename).suffix.lower()
     if suffix == ".pdf":
@@ -475,9 +536,10 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
         reader = PdfReader(io.BytesIO(raw))
         pages = []
         for page_number, page in enumerate(reader.pages, 1):
-            text = page.extract_text() or ""
-            if text.strip():
-                pages.append({"prompt": f"{Path(filename).name} page {page_number}", "content": text, "category": "document"})
+            page_text = page.extract_text() or ""
+            for chunk_index, chunk in enumerate(chunk_reference_text(page_text), 1):
+                pages.append({"prompt": f"{Path(filename).name} page {page_number} part {chunk_index}",
+                              "content": chunk, "category": "document", "split": "train"})
         if not pages:
             raise ValueError("No selectable text was found in this PDF. Scanned-image OCR is not supported yet.")
         return pages
@@ -493,7 +555,9 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
         content = "\\n\\n".join(paragraphs).strip()
         if not content:
             raise ValueError("No readable text was found in this DOCX file.")
-        return [{"prompt": f"Reference material: {Path(filename).name}", "content": content, "category": "document"}]
+        return [{"prompt": f"Reference material: {Path(filename).name} part {i}",
+                 "content": chunk, "category": "document", "split": "train"}
+                for i,chunk in enumerate(chunk_reference_text(content),1)]
     decoded = raw.decode("utf-8-sig")
     if suffix == ".jsonl":
         return [json.loads(line) for line in decoded.splitlines() if line.strip()]
@@ -514,8 +578,11 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
                               "content": str(source), "category": "jupyter-" + str(cell.get("cell_type","code"))})
         return cells
     if suffix in TEXT_EXTENSIONS:
-        return [{"prompt": f"Reference material: {Path(filename).name}",
-                 "content": decoded, "category": suffix.lstrip(".") or "general"}]
+        is_document=suffix in {".txt",".md",".rst",".pdf",".docx",".html",".htm",".xml"}
+        chunks=chunk_reference_text(decoded) if is_document else [decoded]
+        return [{"prompt": f"Reference material: {Path(filename).name} part {i}",
+                 "content": chunk, "category": suffix.lstrip(".") or "general", "split":"train"}
+                for i,chunk in enumerate(chunks,1)]
     raise ValueError("Unsupported or binary file type.")
 
 @app.post("/api/datasets/import")
@@ -529,18 +596,12 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
     except Exception as exc:
         raise HTTPException(400,f"Could not parse uploaded material: {type(exc).__name__}: {exc}")
     if not isinstance(rows,list): raise HTTPException(400,"Uploaded material did not produce examples.")
+    is_document=Path(file.filename).suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".html",".htm",".xml"}
+    prepared=prepared_dataset_rows(rows,category,Path(file.filename).name,document_chunks=is_document)
     count=0
     with connect() as c:
-        for i,row in enumerate(rows):
-            if not isinstance(row,dict): continue
-            code=str(row.get("content") or row.get("code") or row.get("completion") or row.get("output") or row.get("text") or "")
-            prompt=str(row.get("prompt") or row.get("instruction") or row.get("title") or f"Example {i+1}")
-            if not code.strip(): continue
-            split=str(row.get("split") or ("validation" if i%10==8 else "test" if i%10==9 else "train")).lower()
-            if split not in ("train","validation","test"): split="train"
-            meta={k:v for k,v in row.items() if k not in ("content","code","completion","output","text","prompt","instruction","title")}
-            c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",
-                      (str(uuid.uuid4()),prompt[:300],str(row.get("category") or category)[:80],split,code,json.dumps(meta,ensure_ascii=False),now()))
+        for item in prepared:
+            c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",item)
             count+=1
     return {"added":count,"total_rows":len(rows),"splits":"train/validation/test"}
 
@@ -570,19 +631,11 @@ def import_inbox_folder():
         except Exception as exc:
             skipped.append({"file":path.name,"reason":f"parse error: {exc}"})
             continue
+        is_document=path.suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".html",".htm",".xml"}
+        prepared=prepared_dataset_rows(rows,path.suffix.lower().lstrip("."),source_name,digest,document_chunks=is_document)
         with connect() as c:
-            for i,row in enumerate(rows):
-                if not isinstance(row,dict): continue
-                code=str(row.get("content") or row.get("code") or row.get("completion") or row.get("output") or row.get("text") or "")
-                prompt=str(row.get("prompt") or row.get("instruction") or row.get("title") or f"{path.name} example {i+1}")
-                if prompt.startswith("Reference material: "):
-                    prompt = "Reference file: " + path.name
-                if not code.strip(): continue
-                split=str(row.get("split") or ("validation" if i%10==8 else "test" if i%10==9 else "train")).lower()
-                if split not in ("train","validation","test"): split="train"
-                row_meta={"source_file":source_name,"sha256":digest,"row_metadata":{k:v for k,v in row.items() if k not in ("content","code","completion","output","text","prompt","instruction","title")}}
-                c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",
-                          (str(uuid.uuid4()),prompt[:300],str(row.get("category") or path.suffix.lower().lstrip("."))[:80],split,code,json.dumps(row_meta,ensure_ascii=False),now()))
+            for item in prepared:
+                c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",item)
                 added+=1
     return {"scanned_files":scanned,"added":added,"skipped":skipped,"folders":[str(DATA_INBOX),str(DATA_EXAMPLES_DIR)]}
 
