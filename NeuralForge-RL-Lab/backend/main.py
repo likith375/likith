@@ -314,6 +314,12 @@ def evaluate_with_adapter(adapter, prompt: str, output: str, expected: str = "",
             "warning": result.get("warning", "Domain-specific adapter evaluator; inspect its implementation and evidence.")}
 
 
+def checkpoint_has_artifacts(path: str | Path) -> bool:
+    """A directory alone is not proof that model weights were checkpointed."""
+    root=Path(path)
+    return root.is_dir() and any(item.is_file() and item.stat().st_size>0 for item in root.rglob("*"))
+
+
 def validate_update_result(result: Any, operation: str) -> tuple[int, float | None]:
     """Never count a missing/empty adapter response as a real model update."""
     if not isinstance(result, dict):
@@ -451,8 +457,8 @@ def _execute_training_locked(run_id, request):
         backup_id=str(uuid.uuid4())
         backup_path=str(CHECKPOINT_DIR/backup_id)
         backup_metadata=adapter.save_checkpoint(backup_path) or {}
-        if not Path(backup_path).exists():
-            raise RuntimeError("Automatic pre-training checkpoint failed: adapter did not create its checkpoint directory.")
+        if not checkpoint_has_artifacts(backup_path):
+            raise RuntimeError("Automatic pre-training checkpoint failed: adapter did not write any non-empty checkpoint files.")
         with connect() as c:
             c.execute("INSERT INTO checkpoints(id,run_id,label,kind,created_at,path,metadata_json) VALUES(?,?,?,?,?,?,?)",
                       (backup_id,run_id,"Automatic backup before training run","model_weights",now(),backup_path,json.dumps(backup_metadata)))
@@ -558,8 +564,8 @@ def _execute_training_locked(run_id, request):
             final_checkpoint_id=str(uuid.uuid4())
             final_checkpoint_path=str(CHECKPOINT_DIR/final_checkpoint_id)
             final_metadata=adapter.save_checkpoint(final_checkpoint_path) or {}
-            if not Path(final_checkpoint_path).exists():
-                raise RuntimeError("Post-training checkpoint failed: adapter did not create its checkpoint directory.")
+            if not checkpoint_has_artifacts(final_checkpoint_path):
+                raise RuntimeError("Post-training checkpoint failed: adapter did not write any non-empty checkpoint files.")
             with connect() as c:
                 c.execute("INSERT INTO checkpoints(id,run_id,label,kind,created_at,path,metadata_json) VALUES(?,?,?,?,?,?,?)",
                           (final_checkpoint_id,run_id,"Automatic checkpoint after training run","model_weights",
@@ -1325,8 +1331,8 @@ def save_checkpoint(payload:dict):
         path=str(CHECKPOINT_DIR/f"{cid}")
         with MODEL_EXECUTION_LOCK:
             metadata=adapter.save_checkpoint(path) or {}
-        if not Path(path).exists():
-            raise RuntimeError("Adapter returned without creating a checkpoint directory.")
+        if not checkpoint_has_artifacts(path):
+            raise RuntimeError("Adapter returned without writing any non-empty checkpoint files.")
         kind="model_weights"
     except Exception as exc:
         raise HTTPException(400, f"Checkpoint save failed: {type(exc).__name__}: {exc}")
