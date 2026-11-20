@@ -141,3 +141,14 @@ def test_validation_benchmark_never_calls_train_step(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert response.json()["average_score"] == 100
     assert client.get("/api/benchmarks").json()[0]["split"] == "validation"
+
+def test_queued_run_can_be_stopped(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("INSERT INTO runs(id,status,episodes,created_at) VALUES(?,?,?,?)",
+                   ("stop-me", "queued", 50, main.now()))
+    response = client.post("/api/runs/stop-me/stop")
+    assert response.status_code == 200
+    assert response.json()["stop_requested"] is True
+    with main.connect() as db:
+        assert db.execute("SELECT stop_requested FROM runs WHERE id='stop-me'").fetchone()[0] == 1
