@@ -888,7 +888,8 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
         raise HTTPException(400,f"Could not parse uploaded material: {type(exc).__name__}: {exc}")
     if not isinstance(rows,list): raise HTTPException(400,"Uploaded material did not produce examples.")
     is_document=Path(file.filename).suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".pptx",".html",".htm",".xml"}
-    prepared=prepared_dataset_rows(rows,category,Path(file.filename).name,document_chunks=is_document)
+    digest=hashlib.sha256(raw).hexdigest()
+    prepared=prepared_dataset_rows(rows,category,Path(file.filename).name,digest,document_chunks=is_document)
     count=0
     with connect() as c:
         for item in prepared:
