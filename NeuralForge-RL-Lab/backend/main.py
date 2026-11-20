@@ -883,7 +883,7 @@ def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, sou
             metadata={"source_file":source_name,"row_metadata":item["metadata"]}
             if digest: metadata["sha256"]=digest
             if len(chunks)>1: metadata["chunk_index"]=chunk_index; metadata["chunk_count"]=len(chunks)
-            prepared.append((str(uuid.uuid4()),name,item["category"],split,chunk,json.dumps(metadata,ensure_ascii=False),now()))
+            prepared.append((str(uuid.uuid4()),name,item["category"],split,chunk,json.dumps(metadata,ensure_ascii=False,default=str),now()))
     return prepared
 
 
