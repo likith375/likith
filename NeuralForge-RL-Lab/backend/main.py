@@ -223,7 +223,7 @@ def static_evaluate(output: str, expected: str = "", domain: str = "general") ->
     score = round(raw * 100, 1)
     return {"score":score,"reward":round((raw * 2)-1,4),"checks":checks,
             "expected_match":expected_match,
-            "warning":"Generic static heuristic only. It does not execute code, validate factual claims, or prove correctness."}
+            "warning":"Generic static heuristic only. It does not execute code or prove code/factual correctness."}
 
 def evaluate_with_adapter(adapter, prompt: str, output: str, expected: str = "", domain: str = "general") -> dict[str, Any]:
     """Use an adapter's domain-specific evaluator when supplied; otherwise be explicit about heuristic limits."""
@@ -339,7 +339,7 @@ def execute_training(run_id, request):
                 generated=adapter.generate(prompt, {"task_id":task["id"],"difficulty":task["difficulty"],"category":task["category"],
                                                    "max_new_tokens":int(cfg.get("max_new_tokens","384"))})
                 output=generated if isinstance(generated,str) else str(generated.get("text",""))
-                evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task.get("category","general"))
+                evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
                 reward=evaluation["reward"]
                 total_reward += reward
                 successes += int(evaluation["score"] >= 75)
@@ -545,6 +545,8 @@ def import_inbox_folder():
                 if not isinstance(row,dict): continue
                 code=str(row.get("content") or row.get("code") or row.get("completion") or row.get("output") or row.get("text") or "")
                 prompt=str(row.get("prompt") or row.get("instruction") or row.get("title") or f"{path.name} example {i+1}")
+                if prompt.startswith("Reference material: "):
+                    prompt = "Reference file: " + path.name
                 if not code.strip(): continue
                 split=str(row.get("split") or ("validation" if i%10==8 else "test" if i%10==9 else "train")).lower()
                 if split not in ("train","validation","test"): split="train"
