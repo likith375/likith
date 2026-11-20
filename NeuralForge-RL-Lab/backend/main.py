@@ -387,13 +387,15 @@ def build_prompt(task):
 
 def record_attempt(task_id: str, run_id: str, prompt: str, output: str, evaluation: dict[str, Any]):
     """Persist immutable task-level evaluation data for curriculum scheduling and progress."""
+    attempt_id=str(uuid.uuid4())
     with connect() as c:
         c.execute(
             "INSERT INTO task_attempts(id,task_id,run_id,prompt,output,score,reward,evaluator,checks_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (str(uuid.uuid4()),task_id,run_id,prompt,output,float(evaluation["score"]),
+            (attempt_id,task_id,run_id,prompt,output,float(evaluation["score"]),
              float(evaluation["reward"]),str(evaluation.get("evaluator","static_heuristic")),
              json.dumps(evaluation.get("checks",{}),ensure_ascii=False),now())
         )
+    return attempt_id
 
 
 def save_mistake(task_id,prompt,output,evaluation,category="failed_tasks"):
@@ -920,11 +922,11 @@ def try_task(task_id: str):
                                            "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
         output=generated if isinstance(generated,str) else str(generated.get("text",""))
         evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
-        record_attempt(task_id,"",prompt,output,evaluation)
+        attempt_id=record_attempt(task_id,"",prompt,output,evaluation)
         mistake_id=None
         if evaluation["score"] < float(setting_map().get("reward_threshold","0.45"))*100:
             mistake_id=save_mistake(task_id,prompt,output,evaluation)
-        return {"task_id":task_id,"output":output,"evaluation":evaluation,"mistake_id":mistake_id}
+        return {"task_id":task_id,"attempt_id":attempt_id,"output":output,"evaluation":evaluation,"mistake_id":mistake_id}
     except HTTPException:
         raise
     except Exception as exc:
