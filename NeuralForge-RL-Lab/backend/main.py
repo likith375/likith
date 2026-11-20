@@ -4,7 +4,7 @@ Generated Luau is never executed by this server. Evaluation is static unless a
 future, explicitly sandboxed evaluator is configured by the owner.
 """
 from __future__ import annotations
-import csv, hashlib, importlib, io, json, os, sqlite3, threading, uuid
+import csv, hashlib, importlib, io, json, os, sqlite3, threading, time, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -76,7 +76,8 @@ def init_db():
           id TEXT PRIMARY KEY,status TEXT NOT NULL,episodes INTEGER NOT NULL,reward REAL DEFAULT 0,
           success_rate REAL DEFAULT 0,real_updates INTEGER DEFAULT 0,notes TEXT DEFAULT '',
           created_at TEXT NOT NULL,started_at TEXT,finished_at TEXT,error TEXT,avg_loss REAL DEFAULT 0,
-          model_name TEXT DEFAULT '');
+          model_name TEXT DEFAULT '',stop_requested INTEGER DEFAULT 0,
+          duration_hours REAL DEFAULT 0,episodes_completed INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS checkpoints(
           id TEXT PRIMARY KEY,run_id TEXT DEFAULT '',label TEXT NOT NULL,kind TEXT NOT NULL,
           created_at TEXT NOT NULL,path TEXT DEFAULT '',metadata_json TEXT DEFAULT '{}');
@@ -88,7 +89,9 @@ def init_db():
           "datasets": {"metadata_json": "TEXT DEFAULT '{}'"},
           "tasks": {"category": "TEXT DEFAULT 'general'", "enabled": "INTEGER DEFAULT 1"},
           "runs": {"started_at": "TEXT", "finished_at": "TEXT", "error": "TEXT",
-                   "avg_loss": "REAL DEFAULT 0", "model_name": "TEXT DEFAULT ''"},
+                   "avg_loss": "REAL DEFAULT 0", "model_name": "TEXT DEFAULT ''",
+                   "stop_requested": "INTEGER DEFAULT 0", "duration_hours": "REAL DEFAULT 0",
+                   "episodes_completed": "INTEGER DEFAULT 0"},
           "checkpoints": {"path": "TEXT DEFAULT ''", "metadata_json": "TEXT DEFAULT '{}'"},
         }
         for table, wanted in migrations.items():
@@ -137,8 +140,9 @@ class ReviewIn(BaseModel):
     note: str = ""
 
 class RunIn(BaseModel):
-    episodes: int = Field(default=10, ge=1, le=5000)
+    episodes: int = Field(default=5000, ge=1, le=1000000)
     batch_size: int | None = Field(default=None, ge=1, le=32)
+    duration_hours: float = Field(default=0, ge=0, le=24)
 
 class AdapterConfig(BaseModel):
     adapter_spec: str = ""
@@ -263,8 +267,14 @@ def execute_training(run_id, request):
         cfg=setting_map()
         episodes=request["episodes"]
         batch_size=request.get("batch_size") or int(cfg.get("batch_size","2"))
-        samples=[]; total_reward=0.0; successes=0; updates=0; losses=[]; supervised_cursor=0
+        duration_hours=float(request.get("duration_hours",0))
+        deadline=time.monotonic()+duration_hours*3600 if duration_hours>0 else None
+        samples=[]; total_reward=0.0; successes=0; updates=0; losses=[]; supervised_cursor=0; completed_episodes=0
         for episode in range(episodes):
+            with connect() as c:
+                run_state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
+            if (run_state and run_state["stop_requested"]) or (deadline and time.monotonic()>=deadline):
+                break
             task=task_rows[episode % len(task_rows)]
             prompt=build_prompt(dict(task))
             try:
@@ -299,13 +309,36 @@ def execute_training(run_id, request):
                 else:
                     updates += 1
                 samples=[]
+            completed_episodes=episode+1
             with connect() as c:
-                c.execute("UPDATE runs SET reward=?,success_rate=?,real_updates=?,avg_loss=? WHERE id=?",
-                          (total_reward/(episode+1),successes/(episode+1),updates,
-                           sum(losses)/len(losses) if losses else 0,run_id))
+                c.execute("UPDATE runs SET reward=?,success_rate=?,real_updates=?,avg_loss=?,episodes_completed=? WHERE id=?",
+                          (total_reward/completed_episodes,successes/completed_episodes,updates,
+                           sum(losses)/len(losses) if losses else 0,completed_episodes,run_id))
+        # Flush a partial batch if the user stopped the run or its time budget expired.
+        if samples:
+            if train_rows and callable(getattr(adapter,"supervised_step",None)):
+                sup_batch=[]
+                for _ in range(min(batch_size,len(train_rows))):
+                    item=train_rows[supervised_cursor % len(train_rows)]; supervised_cursor+=1
+                    sup_batch.append({"prompt":item["name"],"completion":item["content"],"category":item["category"]})
+                sup_result=adapter.supervised_step(sup_batch)
+                if isinstance(sup_result,dict):
+                    updates += int(sup_result.get("updates",1))
+                    if sup_result.get("loss") is not None: losses.append(float(sup_result["loss"]))
+            result=adapter.train_step(samples)
+            if isinstance(result,dict):
+                updates += int(result.get("updates",1))
+                if result.get("loss") is not None: losses.append(float(result["loss"]))
+            else:
+                updates += 1
         with connect() as c:
-            c.execute("UPDATE runs SET status='completed',finished_at=?,notes=? WHERE id=?",
-                      (now(),"Training completed using the configured adapter. Check adapter logs and evaluation metrics.",run_id))
+            state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
+            stopped=bool(state and state["stop_requested"])
+            duration_hit=bool(deadline and time.monotonic()>=deadline)
+            status="stopped" if stopped else "completed"
+            note=("Stopped by user. " if stopped else "")+("Time budget reached. " if duration_hit else "")+f"Processed {completed_episodes} episodes. Training uses the configured adapter."
+            c.execute("UPDATE runs SET status=?,finished_at=?,notes=?,real_updates=?,avg_loss=?,episodes_completed=? WHERE id=?",
+                      (status,now(),note,updates,sum(losses)/len(losses) if losses else 0,completed_episodes,run_id))
     except Exception as exc:
         with connect() as c:
             c.execute("UPDATE runs SET status='failed',finished_at=?,error=?,notes=? WHERE id=?",
@@ -566,10 +599,20 @@ def adapter_status():
 def start_run(request:RunIn, background:BackgroundTasks):
     rid=str(uuid.uuid4())
     with connect() as c:
-        c.execute("INSERT INTO runs(id,status,episodes,reward,success_rate,real_updates,notes,created_at) VALUES(?,?,?,?,?,?,?,?)",
-                  (rid,"queued",request.episodes,0,0,0,"Queued; model weights are not changed until adapter train_step succeeds.",now()))
+        c.execute("INSERT INTO runs(id,status,episodes,reward,success_rate,real_updates,notes,created_at,duration_hours) VALUES(?,?,?,?,?,?,?,?,?)",
+                  (rid,"queued",request.episodes,0,0,0,"Queued; imported train-split examples and reward feedback will be used when supported by the adapter.",now(),request.duration_hours))
     background.add_task(execute_training,rid,request.model_dump())
-    return {"id":rid,"status":"queued","episodes":request.episodes,"message":"Training run queued. Poll /api/runs for status."}
+    return {"id":rid,"status":"queued","episodes":request.episodes,"duration_hours":request.duration_hours,"message":"Training run queued. Poll /api/runs for status."}
+
+@app.post("/api/runs/{run_id}/stop")
+def stop_run(run_id:str):
+    with connect() as c:
+        row=c.execute("SELECT status FROM runs WHERE id=?",(run_id,)).fetchone()
+        if not row: raise HTTPException(404,"Run not found.")
+        if row["status"] not in ("queued","running"):
+            return {"id":run_id,"status":row["status"],"stop_requested":False}
+        c.execute("UPDATE runs SET stop_requested=1 WHERE id=?",(run_id,))
+    return {"id":run_id,"stop_requested":True,"message":"Stop requested. The current training batch will finish before stopping."}
 
 @app.get("/api/runs")
 def list_runs():
