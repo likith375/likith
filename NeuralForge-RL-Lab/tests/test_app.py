@@ -315,7 +315,7 @@ def test_python_domain_checks_syntax_without_execution():
     broken_assignment = main.evaluate_python_static("x =")
     assert assignment["checks"]["python_syntax_valid"] is True
     assert broken_assignment["checks"]["python_syntax_valid"] is False
-    fenced = main.evaluate_python_static("Here is the code:\\n\\n```python3\\ndef add(a, b):\\n    return a + b\\n```")
+    fenced = main.evaluate_python_static("Here is the code:" + chr(10) + chr(10) + "```python3" + chr(10) + "def add(a, b):" + chr(10) + "    return a + b" + chr(10) + "```")
     assert fenced["checks"]["python_syntax_valid"] is True
 
 
