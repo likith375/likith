@@ -787,11 +787,26 @@ def normalize_dataset_row(row: dict[str, Any], index: int, default_category: str
             "metadata":metadata}
 
 
+def existing_dataset_content_splits() -> dict[str,str | None]:
+    """Map exact existing content to its split; None means a legacy split conflict."""
+    with connect() as c:
+        rows=c.execute("SELECT content,split FROM datasets").fetchall()
+    mapping={}
+    for row in rows:
+        key=hashlib.sha256(row["content"].encode("utf-8")).hexdigest()
+        if key in mapping and mapping[key]!=row["split"]:
+            mapping[key]=None
+        else:
+            mapping[key]=row["split"]
+    return mapping
+
+
 def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, source_name: str,
-                          digest: str | None = None, document_chunks: bool = False) -> list[tuple]:
+                          digest: str | None = None, document_chunks: bool = False,
+                          existing_content_splits: dict[str,str | None] | None = None) -> list[tuple]:
     """Normalize imports and keep exact duplicate examples in one data split."""
     prepared=[]
-    content_splits={}
+    content_splits=dict(existing_content_splits or {})
     unique_group_index=0
     split_pattern=("train","train","train","train","train","train","train","train","validation","test")
     for index,row in enumerate(rows):
@@ -803,11 +818,13 @@ def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, sou
         if requested_split in ("train","validation","test"):
             split=requested_split
             previous=content_splits.get(content_key)
-            if previous and previous!=split:
-                raise ValueError("Identical content cannot be assigned to different train/validation/test splits.")
+            if content_key in content_splits and (previous is None or previous!=split):
+                raise ValueError("Identical content cannot be assigned to different train/validation/test splits. Repair existing split conflicts first.")
             content_splits[content_key]=split
         elif content_key in content_splits:
             split=content_splits[content_key]
+            if split is None:
+                raise ValueError("Existing copies of this content already cross dataset splits. Repair the split conflict before importing it again.")
         elif document_chunks:
             split="train"
             content_splits[content_key]=split
@@ -944,7 +961,9 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
     if not isinstance(rows,list): raise HTTPException(400,"Uploaded material did not produce examples.")
     is_document=Path(file.filename).suffix.lower() in DOCUMENT_CHUNK_EXTENSIONS
     digest=hashlib.sha256(raw).hexdigest()
-    prepared=prepared_dataset_rows(rows,category,Path(file.filename).name,digest,document_chunks=is_document)
+    prepared=prepared_dataset_rows(rows,category,Path(file.filename).name,digest,
+                                    document_chunks=is_document,
+                                    existing_content_splits=existing_dataset_content_splits())
     count=0
     with connect() as c:
         for item in prepared:
@@ -982,7 +1001,9 @@ def import_inbox_folder():
             if isinstance(row,dict) and str(row.get("prompt","")).startswith("Reference material: "):
                 row["prompt"]="Reference file: "+path.name
         is_document=path.suffix.lower() in DOCUMENT_CHUNK_EXTENSIONS
-        prepared=prepared_dataset_rows(rows,path.suffix.lower().lstrip("."),source_name,digest,document_chunks=is_document)
+        prepared=prepared_dataset_rows(rows,path.suffix.lower().lstrip("."),source_name,digest,
+                                        document_chunks=is_document,
+                                        existing_content_splits=existing_dataset_content_splits())
         with connect() as c:
             for item in prepared:
                 c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",item)
