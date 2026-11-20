@@ -83,6 +83,9 @@ def init_db():
           created_at TEXT NOT NULL,path TEXT DEFAULT '',metadata_json TEXT DEFAULT '{}');
         CREATE TABLE IF NOT EXISTS adapter_settings(
           key TEXT PRIMARY KEY,value TEXT NOT NULL,updated_at TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS benchmarks(
+          id TEXT PRIMARY KEY,split TEXT NOT NULL,examples INTEGER NOT NULL,avg_score REAL DEFAULT 0,
+          pass_rate REAL DEFAULT 0,details_json TEXT DEFAULT '[]',created_at TEXT NOT NULL,model_name TEXT DEFAULT '');
         """)
         # Upgrade the early prototype database without destroying user data.
         migrations = {
@@ -658,6 +661,49 @@ def restore_checkpoint(checkpoint_id:str):
         result=adapter.load_checkpoint(row["path"])
         return {"restored":True,"result":result}
     except Exception as exc: raise HTTPException(400,str(exc))
+
+@app.post("/api/benchmarks/run")
+def run_benchmark(split: str="validation", limit: int=100):
+    if split not in ("validation","test"):
+        raise HTTPException(400,"Benchmark split must be validation or test.")
+    limit=max(1,min(limit,500))
+    try:
+        adapter=get_adapter()
+        if adapter is None: raise HTTPException(400,"Connect a model before running a benchmark.")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(400,str(exc))
+    with connect() as c:
+        rows=c.execute("SELECT name,category,content FROM datasets WHERE split=? ORDER BY created_at LIMIT ?",(split,limit)).fetchall()
+    if not rows: raise HTTPException(400,f"No {split} examples are available.")
+    details=[]; total=0.0; passed=0
+    for row in rows:
+        prompt=build_prompt({"prompt":f"Write a Roblox Luau solution for: {row['name']}","category":row["category"]})
+        try:
+            generated=adapter.generate(prompt,{"benchmark_split":split,"category":row["category"],
+                                               "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
+            output=generated if isinstance(generated,str) else str(generated.get("text",""))
+            evaluation=static_evaluate(output,row["content"])
+            total+=evaluation["score"]; passed+=int(evaluation["score"]>=75)
+            details.append({"prompt":row["name"],"score":evaluation["score"],"expected_match":evaluation["expected_match"],
+                            "output_preview":output[:1000],"checks":evaluation["checks"]})
+        except Exception as exc:
+            details.append({"prompt":row["name"],"error":f"{type(exc).__name__}: {exc}","score":0})
+    count=len(details); avg=total/count; pass_rate=passed/count
+    bid=str(uuid.uuid4()); model_name=getattr(adapter,"name",type(adapter).__name__)
+    with connect() as c:
+        c.execute("INSERT INTO benchmarks(id,split,examples,avg_score,pass_rate,details_json,created_at,model_name) VALUES(?,?,?,?,?,?,?,?)",
+                  (bid,split,count,avg,pass_rate,json.dumps(details,ensure_ascii=False),now(),model_name))
+    return {"id":bid,"split":split,"examples":count,"average_score":round(avg,1),
+            "pass_rate":round(pass_rate*100,1),"model":model_name,"details":details,
+            "warning":"Static heuristic only; this is not a Roblox runtime test."}
+
+@app.get("/api/benchmarks")
+def list_benchmarks():
+    with connect() as c:
+        rows=c.execute("SELECT * FROM benchmarks ORDER BY created_at DESC LIMIT 100").fetchall()
+    return [dict(x) for x in rows]
 
 @app.get("/api/metrics")
 def metrics():
