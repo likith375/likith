@@ -225,6 +225,40 @@ def static_evaluate(output: str, expected: str = "", domain: str = "general") ->
             "expected_match":expected_match,
             "warning":"Generic static heuristic only. It does not execute code, validate factual claims, or prove correctness."}
 
+def evaluate_with_adapter(adapter, prompt: str, output: str, expected: str = "", domain: str = "general") -> dict[str, Any]:
+    """Use an adapter's domain-specific evaluator when supplied; otherwise be explicit about heuristic limits."""
+    evaluator = getattr(adapter, "evaluate", None)
+    if not callable(evaluator):
+        return static_evaluate(output, expected, domain)
+    result = evaluator(prompt, output, expected, domain)
+    if not isinstance(result, dict):
+        raise TypeError("Adapter evaluate() must return a dictionary.")
+    score = float(result.get("score"))
+    reward = float(result.get("reward", (score / 50.0) - 1.0))
+    if not (0.0 <= score <= 100.0) or not (-1.0 <= reward <= 1.0):
+        raise ValueError("Adapter evaluator score must be 0..100 and reward must be -1..1.")
+    return {**result, "score": round(score, 2), "reward": round(reward, 4),
+            "evaluator": result.get("evaluator", type(adapter).__name__),
+            "warning": result.get("warning", "Domain-specific adapter evaluator; inspect its implementation and evidence.")}
+
+
+def validate_update_result(result: Any, operation: str) -> tuple[int, float | None]:
+    """Never count a missing/empty adapter response as a real model update."""
+    if not isinstance(result, dict):
+        raise TypeError(f"{operation} must return a dictionary containing an explicit updates count.")
+    updates = result.get("updates")
+    if not isinstance(updates, int) or updates < 0:
+        raise ValueError(f"{operation} must return a non-negative integer 'updates' field.")
+    if operation == "train_step" and updates < 1:
+        raise RuntimeError("The adapter reported zero reward-learning updates; the run cannot claim learning.")
+    loss = result.get("loss")
+    if loss is not None:
+        loss = float(loss)
+        if not (loss == loss and abs(loss) != float("inf")):
+            raise ValueError(f"{operation} returned a non-finite loss.")
+    return updates, loss
+
+
 def verified_examples(limit=6):
     with connect() as c:
         rows = c.execute("""
@@ -305,7 +339,7 @@ def execute_training(run_id, request):
                 generated=adapter.generate(prompt, {"task_id":task["id"],"difficulty":task["difficulty"],"category":task["category"],
                                                    "max_new_tokens":int(cfg.get("max_new_tokens","384"))})
                 output=generated if isinstance(generated,str) else str(generated.get("text",""))
-                evaluation=static_evaluate(output,task["expected"],task.get("category","general"))
+                evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task.get("category","general"))
                 reward=evaluation["reward"]
                 total_reward += reward
                 successes += int(evaluation["score"] >= 75)
@@ -323,15 +357,13 @@ def execute_training(run_id, request):
                         item=train_rows[supervised_cursor % len(train_rows)]; supervised_cursor+=1
                         sup_batch.append({"prompt":item["name"],"completion":item["content"],"category":item["category"]})
                     sup_result=adapter.supervised_step(sup_batch)
-                    if isinstance(sup_result,dict):
-                        updates += int(sup_result.get("updates",1))
-                        if sup_result.get("loss") is not None: losses.append(float(sup_result["loss"]))
+                    sup_updates, sup_loss = validate_update_result(sup_result, "supervised_step")
+                    updates += sup_updates
+                    if sup_loss is not None: losses.append(sup_loss)
                 result=adapter.train_step(samples)
-                if isinstance(result,dict):
-                    updates += int(result.get("updates",1))
-                    if result.get("loss") is not None: losses.append(float(result["loss"]))
-                else:
-                    updates += 1
+                reward_updates, reward_loss = validate_update_result(result, "train_step")
+                updates += reward_updates
+                if reward_loss is not None: losses.append(reward_loss)
                 samples=[]
             completed_episodes=episode+1
             with connect() as c:
@@ -346,15 +378,13 @@ def execute_training(run_id, request):
                     item=train_rows[supervised_cursor % len(train_rows)]; supervised_cursor+=1
                     sup_batch.append({"prompt":item["name"],"completion":item["content"],"category":item["category"]})
                 sup_result=adapter.supervised_step(sup_batch)
-                if isinstance(sup_result,dict):
-                    updates += int(sup_result.get("updates",1))
-                    if sup_result.get("loss") is not None: losses.append(float(sup_result["loss"]))
+                sup_updates, sup_loss = validate_update_result(sup_result, "supervised_step")
+                updates += sup_updates
+                if sup_loss is not None: losses.append(sup_loss)
             result=adapter.train_step(samples)
-            if isinstance(result,dict):
-                updates += int(result.get("updates",1))
-                if result.get("loss") is not None: losses.append(float(result["loss"]))
-            else:
-                updates += 1
+            reward_updates, reward_loss = validate_update_result(result, "train_step")
+            updates += reward_updates
+            if reward_loss is not None: losses.append(reward_loss)
         with connect() as c:
             state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
             stopped=bool(state and state["stop_requested"])
@@ -401,12 +431,39 @@ DATASET_EXTENSIONS = {
     ".html", ".htm", ".css", ".js", ".jsx", ".ts", ".tsx", ".py", ".ipynb", ".java",
     ".c", ".h", ".cpp", ".hpp", ".cs", ".go", ".rs", ".php", ".rb", ".swift", ".kt",
     ".dart", ".scala", ".sql", ".sh", ".bash", ".zsh", ".bat", ".cmd", ".ps1", ".r",
-    ".m", ".pl", ".lua", ".luau", ".vue", ".svelte", ".graphql", ".proto"
+    ".m", ".pl", ".lua", ".luau", ".vue", ".svelte", ".graphql", ".proto", ".pdf", ".docx"
 }
 TEXT_EXTENSIONS = DATASET_EXTENSIONS - {".jsonl", ".json", ".csv", ".ipynb"}
 
 def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
     suffix = Path(filename).suffix.lower()
+    if suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+        except ImportError as exc:
+            raise ValueError("PDF import requires pypdf. Install requirements.txt and restart.") from exc
+        reader = PdfReader(io.BytesIO(raw))
+        pages = []
+        for page_number, page in enumerate(reader.pages, 1):
+            text = page.extract_text() or ""
+            if text.strip():
+                pages.append({"prompt": f"{Path(filename).name} page {page_number}", "content": text, "category": "document"})
+        if not pages:
+            raise ValueError("No selectable text was found in this PDF. Scanned-image OCR is not supported yet.")
+        return pages
+    if suffix == ".docx":
+        try:
+            from docx import Document
+        except ImportError as exc:
+            raise ValueError("DOCX import requires python-docx. Install requirements.txt and restart.") from exc
+        document = Document(io.BytesIO(raw))
+        paragraphs = [p.text for p in document.paragraphs if p.text.strip()]
+        for table_index, table in enumerate(document.tables, 1):
+            paragraphs.append("\\n[Table " + str(table_index) + "]\\n" + "\\n".join(" | ".join(cell.text for cell in row.cells) for row in table.rows))
+        content = "\\n\\n".join(paragraphs).strip()
+        if not content:
+            raise ValueError("No readable text was found in this DOCX file.")
+        return [{"prompt": f"Reference material: {Path(filename).name}", "content": content, "category": "document"}]
     decoded = raw.decode("utf-8-sig")
     if suffix == ".jsonl":
         return [json.loads(line) for line in decoded.splitlines() if line.strip()]
@@ -439,8 +496,8 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
     if len(raw)>15*1024*1024: raise HTTPException(413,"Dataset file exceeds the 15 MB import limit.")
     try:
         rows=parse_uploaded_material(file.filename, raw)
-    except (UnicodeDecodeError,json.JSONDecodeError,ValueError) as exc:
-        raise HTTPException(400,f"Could not parse uploaded material: {exc}")
+    except Exception as exc:
+        raise HTTPException(400,f"Could not parse uploaded material: {type(exc).__name__}: {exc}")
     if not isinstance(rows,list): raise HTTPException(400,"Uploaded material did not produce examples.")
     count=0
     with connect() as c:
@@ -506,6 +563,15 @@ def export_datasets():
             yield json.dumps({"prompt":row["name"],"category":row["category"],"split":row["split"],"content":row["content"]},ensure_ascii=False)+"\n"
     return StreamingResponse(stream(),media_type="application/x-ndjson",headers={"Content-Disposition":"attachment; filename=neuralforge-dataset.jsonl"})
 
+@app.delete("/api/datasets/{dataset_id}")
+def delete_dataset(dataset_id: str):
+    with connect() as c:
+        cur = c.execute("DELETE FROM datasets WHERE id=?", (dataset_id,))
+        if not cur.rowcount:
+            raise HTTPException(404, "Dataset example not found.")
+    return {"deleted": True, "id": dataset_id}
+
+
 @app.get("/api/tasks")
 def list_tasks():
     with connect() as c:return [dict(x) for x in c.execute("SELECT * FROM tasks ORDER BY created_at DESC")]
@@ -535,6 +601,15 @@ def generate_tasks_from_dataset(limit: int = 30):
             existing.add(title); created+=1
     return {"created":created,"available_examples":len(rows),"message":"Practice tasks generated from train-split examples only."}
 
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: str):
+    with connect() as c:
+        cur = c.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+        if not cur.rowcount:
+            raise HTTPException(404, "Task not found.")
+    return {"deleted": True, "id": task_id}
+
+
 @app.post("/api/tasks/{task_id}/try")
 def try_task(task_id: str):
     with connect() as c:
@@ -547,7 +622,7 @@ def try_task(task_id: str):
         generated=adapter.generate(prompt,{"task_id":task_id,"difficulty":task["difficulty"],"category":task["category"],
                                            "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
         output=generated if isinstance(generated,str) else str(generated.get("text",""))
-        evaluation=static_evaluate(output,task["expected"])
+        evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
         mistake_id=None
         if evaluation["score"] < float(setting_map().get("reward_threshold","0.45"))*100:
             mistake_id=save_mistake(task_id,prompt,output,evaluation)
@@ -652,6 +727,78 @@ def adapter_status():
     except Exception as exc:
         return {"configured":True,"connected":False,"can_train":False,"error":str(exc)}
 
+@app.get("/api/system/diagnostics")
+def system_diagnostics():
+    cfg = setting_map()
+    with connect() as c:
+        db_counts = {
+            "datasets": c.execute("SELECT COUNT(*) FROM datasets").fetchone()[0],
+            "tasks": c.execute("SELECT COUNT(*) FROM tasks").fetchone()[0],
+            "mistakes": c.execute("SELECT COUNT(*) FROM mistakes").fetchone()[0],
+            "runs": c.execute("SELECT COUNT(*) FROM runs").fetchone()[0],
+            "checkpoints": c.execute("SELECT COUNT(*) FROM checkpoints").fetchone()[0],
+        }
+    return {
+        "ok": True, "python": __import__("sys").version.split()[0],
+        "database": str(DB), "database_exists": DB.exists(), "counts": db_counts,
+        "folders": {name: path.exists() for name, path in {
+            "inbox": DATA_INBOX, "examples": DATA_EXAMPLES_DIR, "mistakes": MISTAKES_DIR,
+            "checkpoints": CHECKPOINT_DIR}.items()},
+        "adapter_configured": bool(cfg.get("adapter_spec", "").strip() or cfg.get("model_path", "").strip()),
+        "adapter_spec": cfg.get("adapter_spec", ""),
+        "model_path_configured": bool(cfg.get("model_path", "").strip()),
+        "limits": {"upload_mb": 15, "max_run_hours": 24, "max_episodes": 1000000},
+    }
+
+
+@app.post("/api/adapter/test")
+def test_adapter():
+    try:
+        adapter = get_adapter()
+        if adapter is None:
+            raise HTTPException(400, "No model is configured.")
+        sample = "Explain what a variable is, using one short example."
+        generated = adapter.generate(sample, {"category": "general", "max_new_tokens": 96, "diagnostic": True})
+        output = generated if isinstance(generated, str) else str(generated.get("text", ""))
+        if not output.strip():
+            raise RuntimeError("The connected model returned an empty response.")
+        evaluator = callable(getattr(adapter, "evaluate", None))
+        return {"connected": True, "name": getattr(adapter, "name", type(adapter).__name__),
+                "generation_ok": True, "sample_output": output[:1200],
+                "domain_evaluator": evaluator,
+                "training_hooks": {"reward": callable(getattr(adapter, "train_step", None)),
+                                   "supervised": callable(getattr(adapter, "supervised_step", None))},
+                "note": "This test generates a sample only; it does not change model weights."}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(400, f"Adapter test failed: {type(exc).__name__}: {exc}")
+
+
+@app.post("/api/generate")
+def generate_once(payload: dict):
+    prompt = str(payload.get("prompt", "")).strip()
+    category = str(payload.get("category", "general")).strip() or "general"
+    if not prompt:
+        raise HTTPException(400, "Prompt is required.")
+    if len(prompt) > 20000:
+        raise HTTPException(413, "Prompt exceeds the 20,000 character limit.")
+    try:
+        adapter = get_adapter()
+        if adapter is None:
+            raise HTTPException(400, "Connect a model before generating.")
+        full_prompt = build_prompt({"prompt": prompt, "category": category})
+        generated = adapter.generate(full_prompt, {"category": category,
+                                                    "max_new_tokens": int(setting_map().get("max_new_tokens", "384"))})
+        output = generated if isinstance(generated, str) else str(generated.get("text", ""))
+        evaluation = evaluate_with_adapter(adapter, full_prompt, output, "", category)
+        return {"output": output, "evaluation": evaluation, "model": getattr(adapter, "name", type(adapter).__name__)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(500, f"Generation failed: {type(exc).__name__}: {exc}")
+
+
 @app.post("/api/runs/start")
 def start_run(request:RunIn, background:BackgroundTasks):
     rid=str(uuid.uuid4())
@@ -696,9 +843,11 @@ def save_checkpoint(payload:dict):
         if adapter is None: raise RuntimeError("No model adapter connected.")
         path=str(CHECKPOINT_DIR/f"{cid}")
         metadata=adapter.save_checkpoint(path) or {}
+        if not Path(path).exists():
+            raise RuntimeError("Adapter returned without creating a checkpoint directory.")
         kind="model_weights"
     except Exception as exc:
-        path=""; metadata={"error":str(exc)}; kind="metadata_only"
+        raise HTTPException(400, f"Checkpoint save failed: {type(exc).__name__}: {exc}")
     with connect() as c:
         c.execute("INSERT INTO checkpoints(id,run_id,label,kind,created_at,path,metadata_json) VALUES(?,?,?,?,?,?,?)",
                   (cid,run_id,label,kind,now(),path,json.dumps(metadata)))
@@ -742,7 +891,7 @@ def run_benchmark(split: str="validation", limit: int=100):
             generated=adapter.generate(prompt,{"benchmark_split":split,"category":row["category"],
                                                "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
             output=generated if isinstance(generated,str) else str(generated.get("text",""))
-            evaluation=static_evaluate(output,row["content"],row["category"])
+            evaluation=evaluate_with_adapter(adapter, prompt, output, row["content"], row["category"])
             total+=evaluation["score"]; passed+=int(evaluation["score"]>=75)
             details.append({"prompt":row["name"],"score":evaluation["score"],"expected_match":evaluation["expected_match"],
                             "output_preview":output[:1000],"checks":evaluation["checks"]})
