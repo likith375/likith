@@ -524,17 +524,46 @@ def chunk_reference_text(text: str, max_chars: int = 3200) -> list[str]:
 
 
 def normalize_dataset_row(row: dict[str, Any], index: int, default_category: str = "general") -> dict[str, Any] | None:
-    """Accept common instruction-tuning and generic knowledge dataset schemas."""
+    """Accept instruction, QA, chat-message and generic knowledge dataset schemas."""
     prompt_keys=("prompt","instruction","question","input","user","title","name")
     content_keys=("content","code","completion","output","response","answer","target","assistant","text")
-    prompt=next((str(row.get(k) or "").strip() for k in prompt_keys if row.get(k) is not None and str(row.get(k)).strip()),f"Example {index+1}")
-    content=next((str(row.get(k) or "").strip() for k in content_keys if row.get(k) is not None and str(row.get(k)).strip()),"")
-    if not content:
-        return None
+    prompt=next((str(row.get(k) or "").strip() for k in prompt_keys
+                 if row.get(k) is not None and str(row.get(k)).strip()), "")
+    content=next((str(row.get(k) or "").strip() for k in content_keys
+                  if row.get(k) is not None and str(row.get(k)).strip()), "")
+
+    # OpenAI-style {"messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}
+    # and ShareGPT-style {"conversations":[{"from":"human","value":"..."},{"from":"gpt","value":"..."}]}.
+    conversation=row.get("messages") or row.get("conversations")
+    if isinstance(conversation,list) and (not prompt or not content):
+        turns=[]
+        for message in conversation:
+            if not isinstance(message,dict): continue
+            role=str(message.get("role") or message.get("from") or "").lower()
+            value=message.get("content",message.get("value",""))
+            if isinstance(value,list):
+                value=" ".join(str(part.get("text","")) if isinstance(part,dict) else str(part) for part in value)
+            value=str(value or "").strip()
+            if value: turns.append((role,value))
+        assistant_roles={"assistant","gpt","bot","model"}
+        user_roles={"user","human"}
+        if turns:
+            assistant_index=next((i for i in range(len(turns)-1,-1,-1) if turns[i][0] in assistant_roles),None)
+            if assistant_index is not None:
+                if not content: content=turns[assistant_index][1]
+                if not prompt:
+                    context=turns[:assistant_index]
+                    prompt="\\n".join(f"{role}: {value}" for role,value in context if role in user_roles or role in {"system","developer"})
+            elif not prompt:
+                prompt="\\n".join(f"{role}: {value}" for role,value in turns if role in user_roles)
+
+    if not prompt: prompt=f"Example {index+1}"
+    if not content: return None
+    excluded=set(prompt_keys+content_keys+("category","split","messages","conversations"))
     return {"prompt":prompt[:300],"content":content,
             "category":str(row.get("category") or default_category)[:80],
             "split":str(row.get("split") or "").lower(),
-            "metadata":{k:v for k,v in row.items() if k not in prompt_keys+content_keys+("category","split")}}
+            "metadata":{k:v for k,v in row.items() if k not in excluded}}
 
 
 def prepared_dataset_rows(rows: list[dict[str, Any]], default_category: str, source_name: str,
