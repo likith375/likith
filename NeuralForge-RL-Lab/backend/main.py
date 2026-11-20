@@ -468,6 +468,8 @@ def _execute_training_locked(run_id, request):
     if not task_rows:
         with connect() as c:c.execute("UPDATE runs SET status='failed',error=?,finished_at=? WHERE id=?",("Create at least one enabled task.",now(),run_id))
         return
+    adapter=None
+    backup_path=None
     try:
         adapter=get_adapter()
         if adapter is None:
@@ -630,9 +632,19 @@ def _execute_training_locked(run_id, request):
                       (status,now(),note,updates,sum(losses)/len(losses) if losses else 0,
                        completed_episodes,feedback_examples,feedback_updates,run_id))
     except Exception as exc:
+        rollback_note=""
+        if adapter is not None and backup_path and checkpoint_has_artifacts(backup_path):
+            try:
+                with MODEL_EXECUTION_LOCK:
+                    adapter.load_checkpoint(backup_path)
+                rollback_note=" The pre-training model checkpoint was restored automatically."
+            except Exception as rollback_error:
+                rollback_note=(f" Automatic rollback failed ({type(rollback_error).__name__}: {rollback_error}); "
+                               f"pre-training checkpoint: {backup_path}.")
         with connect() as c:
             c.execute("UPDATE runs SET status='failed',finished_at=?,error=?,notes=? WHERE id=?",
-                      (now(),f"{type(exc).__name__}: {exc}","No success is claimed when adapter training fails.",run_id))
+                      (now(),f"{type(exc).__name__}: {exc}{rollback_note}",
+                       "No success is claimed when adapter training fails."+rollback_note,run_id))
 
 @app.get("/",response_class=HTMLResponse)
 def home():
