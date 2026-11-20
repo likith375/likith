@@ -347,7 +347,7 @@ def verified_examples(limit=6, category: str | None=None):
     if category:
         matching=[row for row in rows if row["domain"] in (category,"general")]
         rows=matching
-    return [{"prompt":r["prompt"],"correction":r["correction"]} for r in rows[:limit]]
+    return [{"prompt":r["prompt"],"correction":r["correction"],"category":r["domain"]} for r in rows[:limit]]
 
 
 def dataset_examples(category="general", prompt: str="", limit=4):
@@ -427,6 +427,13 @@ def execute_training(run_id, request):
         if adapter is None:
             raise RuntimeError("No model is connected. Configure an adapter or a Hugging Face model path first.")
         model_name=getattr(adapter,"name",type(adapter).__name__)
+        verified_rows=verified_examples(limit=500)
+        supervised_rows=[dict(row) for row in train_rows]
+        supervised_rows.extend({
+            "name":"Verified correction: "+row["prompt"],
+            "category":row["category"],
+            "content":row["correction"]
+        } for row in verified_rows)
         # Preserve a restorable model snapshot before the first optimizer update.
         backup_id=str(uuid.uuid4())
         backup_path=str(CHECKPOINT_DIR/backup_id)
@@ -502,10 +509,10 @@ def execute_training(run_id, request):
                 raise
             if len(samples) >= batch_size or episode == episodes-1:
                 # First learn from curated train-split examples when the adapter supports SFT.
-                if train_rows and callable(getattr(adapter,"supervised_step",None)):
+                if supervised_rows and callable(getattr(adapter,"supervised_step",None)):
                     sup_batch=[]
-                    for _ in range(min(batch_size,len(train_rows))):
-                        item=train_rows[supervised_cursor % len(train_rows)]; supervised_cursor+=1
+                    for _ in range(min(batch_size,len(supervised_rows))):
+                        item=supervised_rows[supervised_cursor % len(supervised_rows)]; supervised_cursor+=1
                         sup_batch.append({"prompt":item["name"],"completion":item["content"],"category":item["category"]})
                     sup_result=adapter.supervised_step(sup_batch)
                     sup_updates, sup_loss = validate_update_result(sup_result, "supervised_step")
@@ -607,7 +614,8 @@ def training_preview():
         verified=c.execute("""SELECT COUNT(*) FROM mistakes m WHERE COALESCE(
             (SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
              ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'
-            AND COALESCE(NULLIF(m.correction,''), '')<>''""").fetchone()[0]
+            AND COALESCE(NULLIF((SELECT e.correction FROM mistake_events e WHERE e.mistake_id=m.id
+             AND e.correction<>'' ORDER BY e.created_at DESC,e.id DESC LIMIT 1),''),m.correction)<>''""").fetchone()[0]
         active=c.execute("SELECT id,status FROM runs WHERE status IN ('queued','running') LIMIT 1").fetchone()
     warnings=[]
     if not task_count: warnings.append("Create or generate at least one enabled task.")
