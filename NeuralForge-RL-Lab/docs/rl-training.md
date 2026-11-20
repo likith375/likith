@@ -39,6 +39,8 @@ The built-in evaluator is deliberately domain-neutral. It checks basic text prop
 
 For stronger evaluation, a trusted adapter may implement `evaluate(prompt, output, expected, domain)` and return a dictionary with `score` from 0 to 100 and `reward` from -1 to 1, plus optional `checks`, `evaluator`, and `warning` fields. This allows different evaluators for Python, mathematics, science, writing, engineering, and other subjects. Keep evaluation deterministic where possible, document its evidence, and never execute untrusted code in the API process.
 
+Python-domain tasks also receive a built-in AST syntax check when the response looks like Python code. This parses syntax without importing or executing the generated program; a syntax pass is not proof of runtime correctness.
+
 ## Evaluator examples
 
 - Python: run static analysis or unit tests inside a disposable container with strict CPU, memory, file-system and time limits.
