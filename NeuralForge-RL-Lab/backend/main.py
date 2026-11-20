@@ -346,7 +346,8 @@ def retrieval_terms(value: str) -> set[str]:
     return {token for token in re.findall(r"[a-z0-9_+#.-]{2,}",str(value or "").lower()) if token not in stop}
 
 
-def verified_examples(limit=6, category: str | None=None):
+def verified_examples(limit=6, category: str | None=None,
+                      exclude_prompt: str | None=None, exclude_correction: str | None=None):
     with connect() as c:
         rows = c.execute("""
           SELECT m.prompt,
@@ -363,7 +364,10 @@ def verified_examples(limit=6, category: str | None=None):
     if category:
         matching=[row for row in rows if row["domain"] in (category,"general")]
         rows=matching
-    return [{"prompt":r["prompt"],"correction":r["correction"],"category":r["domain"]} for r in rows[:limit]]
+    filtered=[r for r in rows
+              if (not exclude_prompt or r["prompt"].strip()!=exclude_prompt.strip())
+              and (not exclude_correction or r["correction"].strip()!=exclude_correction.strip())]
+    return [{"prompt":r["prompt"],"correction":r["correction"],"category":r["domain"]} for r in filtered[:limit]]
 
 
 def dataset_examples(category="general", prompt: str="", limit=4, exclude_id: str | None=None,
@@ -395,7 +399,9 @@ def dataset_examples(category="general", prompt: str="", limit=4, exclude_id: st
 
 def build_prompt(task):
     domain = task.get("domain") or task.get("category") or "general"
-    verified = verified_examples(category=domain)
+    verified = verified_examples(category=domain,
+                                  exclude_prompt=task.get("prompt",""),
+                                  exclude_correction=task.get("expected",""))
     references = dataset_examples(domain, task.get("prompt",""),
                                   exclude_id=task.get("source_dataset_id") or None,
                                   exclude_content=task.get("expected") or None)
