@@ -48,6 +48,12 @@ See `adapters/custom_adapter.py`. The training service calls:
 - `save_checkpoint(path)`
 - `load_checkpoint(path)`
 
+## Dataset and run inspection
+
+- `GET /api/datasets/stats` reports split/category counts, duplicate-content groups, empty examples and content-length statistics.
+- `GET /api/training/preview` checks whether enabled tasks, train examples and a model adapter are configured, and reports pending feedback and verified corrections. It does not load the model or guarantee that a run will succeed.
+- Each run records `human_feedback_examples` and `feedback_updates` separately from its total `real_updates`.
+
 ## Human feedback loop
 
 1. A task attempt receives a stable `attempt_id`.
