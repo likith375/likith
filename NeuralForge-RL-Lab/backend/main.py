@@ -469,6 +469,14 @@ def _execute_training_locked(run_id, request):
         duration_hours=float(request.get("duration_hours",0))
         deadline=time.monotonic()+duration_hours*3600 if duration_hours>0 else None
         updates=0; losses=[]; feedback_updates=0; feedback_examples=0; feedback_ids_to_consume=[]
+        with connect() as c:
+            initial_state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
+        if (initial_state and initial_state["stop_requested"]) or (deadline and time.monotonic()>=deadline):
+            reason="Stop requested before the first training batch." if initial_state and initial_state["stop_requested"] else "Time budget expired before the first training batch."
+            with connect() as c:
+                c.execute("UPDATE runs SET status='stopped',finished_at=?,notes=?,episodes_completed=0 WHERE id=?",
+                          (now(),reason,run_id))
+            return
         # Human ratings are the strongest available reward signal. They are
         # consumed only after the updated weights have been checkpointed.
         with connect() as c:
