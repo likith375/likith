@@ -5,7 +5,7 @@ uses static heuristics (plus Python AST syntax checks); trusted adapters may
 supply domain-specific evaluation without executing untrusted output.
 """
 from __future__ import annotations
-import ast, csv, hashlib, importlib, io, json, os, re, sqlite3, threading, time, uuid
+import ast, csv, hashlib, importlib, io, json, os, random, re, sqlite3, threading, time, uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -97,6 +97,12 @@ def init_db():
         CREATE TABLE IF NOT EXISTS benchmarks(
           id TEXT PRIMARY KEY,split TEXT NOT NULL,examples INTEGER NOT NULL,avg_score REAL DEFAULT 0,
           pass_rate REAL DEFAULT 0,details_json TEXT DEFAULT '[]',created_at TEXT NOT NULL,model_name TEXT DEFAULT '');
+        CREATE TABLE IF NOT EXISTS task_attempts(
+          id TEXT PRIMARY KEY,task_id TEXT NOT NULL,run_id TEXT DEFAULT '',prompt TEXT NOT NULL,
+          output TEXT NOT NULL,score REAL NOT NULL,reward REAL NOT NULL,evaluator TEXT DEFAULT '',
+          checks_json TEXT DEFAULT '{}',created_at TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_task_attempts_task_created
+          ON task_attempts(task_id,created_at DESC);
         """)
         # Upgrade the early prototype database without destroying user data.
         migrations = {
@@ -335,6 +341,17 @@ def build_prompt(task):
     parts.append("\nNow solve the new task. Do not copy an unrelated example.")
     return "\n".join(parts)
 
+def record_attempt(task_id: str, run_id: str, prompt: str, output: str, evaluation: dict[str, Any]):
+    """Persist immutable task-level evaluation data for curriculum scheduling and progress."""
+    with connect() as c:
+        c.execute(
+            "INSERT INTO task_attempts(id,task_id,run_id,prompt,output,score,reward,evaluator,checks_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (str(uuid.uuid4()),task_id,run_id,prompt,output,float(evaluation["score"]),
+             float(evaluation["reward"]),str(evaluation.get("evaluator","static_heuristic")),
+             json.dumps(evaluation.get("checks",{}),ensure_ascii=False),now())
+        )
+
+
 def save_mistake(task_id,prompt,output,evaluation,category="failed_tasks"):
     mid=str(uuid.uuid4())
     with connect() as c:
@@ -349,6 +366,10 @@ def execute_training(run_id, request):
         c.execute("UPDATE runs SET status='running',started_at=? WHERE id=?",(started,run_id))
         task_rows=c.execute("SELECT * FROM tasks WHERE enabled=1 ORDER BY created_at").fetchall()
         train_rows=c.execute("SELECT name,category,content FROM datasets WHERE split='train' ORDER BY created_at LIMIT 10000").fetchall()
+        task_recent_scores={}
+        for task_row in task_rows:
+            recent=c.execute("SELECT AVG(score) FROM (SELECT score FROM task_attempts WHERE task_id=? ORDER BY created_at DESC LIMIT 20)",(task_row["id"],)).fetchone()[0]
+            task_recent_scores[task_row["id"]]=float(recent) if recent is not None else 50.0
     if not task_rows:
         with connect() as c:c.execute("UPDATE runs SET status='failed',error=?,finished_at=? WHERE id=?",("Create at least one enabled task.",now(),run_id))
         return
@@ -370,7 +391,10 @@ def execute_training(run_id, request):
                 run_state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
             if (run_state and run_state["stop_requested"]) or (deadline and time.monotonic()>=deadline):
                 break
-            task=task_rows[episode % len(task_rows)]
+            # Adaptive curriculum: weakly mastered tasks receive more practice,
+            # while every enabled task retains a non-zero chance of selection.
+            weights=[max(0.2, 1.0 + (70.0-task_recent_scores.get(t["id"],50.0))/70.0) for t in task_rows]
+            task=random.choices(task_rows,weights=weights,k=1)[0]
             prompt=build_prompt(dict(task))
             try:
                 generated=adapter.generate(prompt, {"task_id":task["id"],"difficulty":task["difficulty"],"category":task["category"],
@@ -378,6 +402,7 @@ def execute_training(run_id, request):
                 output=generated if isinstance(generated,str) else str(generated.get("text",""))
                 evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
                 reward=evaluation["reward"]
+                record_attempt(task["id"],run_id,prompt,output,evaluation)
                 total_reward += reward
                 successes += int(evaluation["score"] >= 75)
                 samples.append({"prompt":prompt,"completion":output,"reward":reward,"task_id":task["id"]})
@@ -671,7 +696,28 @@ def delete_dataset(dataset_id: str):
 
 @app.get("/api/tasks")
 def list_tasks():
-    with connect() as c:return [dict(x) for x in c.execute("SELECT * FROM tasks ORDER BY created_at DESC")]
+    with connect() as c:
+        return [dict(x) for x in c.execute("""
+          SELECT t.*,
+            (SELECT COUNT(*) FROM task_attempts a WHERE a.task_id=t.id) AS attempt_count,
+            (SELECT AVG(score) FROM task_attempts a WHERE a.task_id=t.id) AS average_score,
+            (SELECT score FROM task_attempts a WHERE a.task_id=t.id ORDER BY created_at DESC LIMIT 1) AS latest_score
+          FROM tasks t ORDER BY t.created_at DESC
+        """)]
+
+@app.get("/api/tasks/performance")
+def task_performance():
+    with connect() as c:
+        rows=c.execute("""
+          SELECT t.id,t.title,t.category,COUNT(a.id) AS attempts,
+            AVG(a.score) AS average_score,
+            (SELECT a2.score FROM task_attempts a2 WHERE a2.task_id=t.id ORDER BY a2.created_at DESC LIMIT 1) AS latest_score,
+            (SELECT a2.created_at FROM task_attempts a2 WHERE a2.task_id=t.id ORDER BY a2.created_at DESC LIMIT 1) AS last_attempt
+          FROM tasks t LEFT JOIN task_attempts a ON a.task_id=t.id
+          GROUP BY t.id ORDER BY attempts DESC,t.created_at DESC
+        """).fetchall()
+    return [dict(row) for row in rows]
+
 
 @app.post("/api/tasks")
 def add_task(t:TaskIn):
@@ -701,6 +747,7 @@ def generate_tasks_from_dataset(limit: int = 30):
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: str):
     with connect() as c:
+        c.execute("DELETE FROM task_attempts WHERE task_id=?", (task_id,))
         cur = c.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         if not cur.rowcount:
             raise HTTPException(404, "Task not found.")
@@ -720,6 +767,7 @@ def try_task(task_id: str):
                                            "max_new_tokens":int(setting_map().get("max_new_tokens","384"))})
         output=generated if isinstance(generated,str) else str(generated.get("text",""))
         evaluation=evaluate_with_adapter(adapter, prompt, output, task["expected"], task["category"])
+        record_attempt(task_id,"",prompt,output,evaluation)
         mistake_id=None
         if evaluation["score"] < float(setting_map().get("reward_threshold","0.45"))*100:
             mistake_id=save_mistake(task_id,prompt,output,evaluation)
