@@ -103,6 +103,14 @@ def init_db():
           checks_json TEXT DEFAULT '{}',created_at TEXT NOT NULL);
         CREATE INDEX IF NOT EXISTS idx_task_attempts_task_created
           ON task_attempts(task_id,created_at DESC);
+        CREATE TABLE IF NOT EXISTS human_feedback(
+          id TEXT PRIMARY KEY,attempt_id TEXT NOT NULL,rating INTEGER NOT NULL,
+          reward REAL NOT NULL,note TEXT DEFAULT '',correction TEXT DEFAULT '',
+          evidence TEXT DEFAULT '',consumed_at TEXT,created_at TEXT NOT NULL);
+        CREATE INDEX IF NOT EXISTS idx_human_feedback_pending
+          ON human_feedback(consumed_at,created_at);
+        CREATE INDEX IF NOT EXISTS idx_human_feedback_attempt
+          ON human_feedback(attempt_id,created_at DESC);
         """)
         # Upgrade the early prototype database without destroying user data.
         migrations = {
@@ -170,6 +178,12 @@ class RunIn(BaseModel):
     episodes: int = Field(default=5000, ge=1, le=1000000)
     batch_size: int | None = Field(default=None, ge=1, le=32)
     duration_hours: float = Field(default=0, ge=0, le=24)
+
+class FeedbackIn(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    note: str = Field(default="", max_length=4000)
+    correction: str = Field(default="", max_length=20000)
+    evidence: str = Field(default="", max_length=4000)
 
 class AdapterConfig(BaseModel):
     adapter_spec: str = ""
@@ -423,7 +437,29 @@ def execute_training(run_id, request):
         batch_size=request.get("batch_size") or int(cfg.get("batch_size","2"))
         duration_hours=float(request.get("duration_hours",0))
         deadline=time.monotonic()+duration_hours*3600 if duration_hours>0 else None
-        samples=[]; total_reward=0.0; successes=0; updates=0; losses=[]; supervised_cursor=0; completed_episodes=0
+        # Human ratings are the strongest available reward signal. They are
+        # consumed only after a real adapter update succeeds.
+        with connect() as c:
+            pending_feedback=c.execute("""
+              SELECT f.id,f.reward,a.prompt,a.output,a.task_id
+              FROM human_feedback f JOIN task_attempts a ON a.id=f.attempt_id
+              WHERE f.consumed_at IS NULL
+              ORDER BY f.created_at,f.id LIMIT 64
+            """).fetchall()
+        feedback_batch=[{"prompt":row["prompt"],"completion":row["output"],
+                         "reward":float(row["reward"]),"task_id":row["task_id"],
+                         "feedback_id":row["id"]} for row in pending_feedback]
+        if feedback_batch:
+            feedback_result=adapter.train_step(feedback_batch)
+            feedback_updates,feedback_loss=validate_update_result(feedback_result,"train_step")
+            updates+=feedback_updates
+            if feedback_loss is not None: losses.append(feedback_loss)
+            consumed_ids=[row["id"] for row in pending_feedback]
+            placeholders=",".join("?" for _ in consumed_ids)
+            with connect() as c:
+                c.execute(f"UPDATE human_feedback SET consumed_at=? WHERE id IN ({placeholders}) AND consumed_at IS NULL",
+                          [now(),*consumed_ids])
+        samples=[]; total_reward=0.0; successes=0; updates=updates; losses=losses; supervised_cursor=0; completed_episodes=0
         for episode in range(episodes):
             with connect() as c:
                 run_state=c.execute("SELECT stop_requested FROM runs WHERE id=?",(run_id,)).fetchone()
@@ -520,6 +556,8 @@ def overview():
                 "verified":c.execute("""SELECT COUNT(*) FROM mistakes m WHERE COALESCE(
                   (SELECT e.action FROM mistake_events e WHERE e.mistake_id=m.id
                    ORDER BY e.created_at DESC,e.id DESC LIMIT 1),m.verification)='verified'""").fetchone()[0],
+                "human_feedback":c.execute("SELECT COUNT(*) FROM human_feedback").fetchone()[0],
+                "pending_feedback":c.execute("SELECT COUNT(*) FROM human_feedback WHERE consumed_at IS NULL").fetchone()[0],
                 "runs":c.execute("SELECT COUNT(*) FROM runs").fetchone()[0],
                 "completed_runs":c.execute("SELECT COUNT(*) FROM runs WHERE status='completed'").fetchone()[0]}
 
@@ -774,6 +812,52 @@ def list_tasks():
           FROM tasks t ORDER BY t.created_at DESC
         """)]
 
+@app.get("/api/attempts")
+def list_attempts(task_id: str | None = None, limit: int = 100):
+    limit=max(1,min(limit,500))
+    query="""SELECT a.*,t.title AS task_title,
+      (SELECT COUNT(*) FROM human_feedback f WHERE f.attempt_id=a.id) AS feedback_count,
+      (SELECT AVG(rating) FROM human_feedback f WHERE f.attempt_id=a.id) AS average_human_rating
+      FROM task_attempts a LEFT JOIN tasks t ON t.id=a.task_id"""
+    args=[]
+    if task_id:
+        query+=" WHERE a.task_id=?"; args.append(task_id)
+    query+=" ORDER BY a.created_at DESC LIMIT ?"; args.append(limit)
+    with connect() as c: rows=c.execute(query,args).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.post("/api/attempts/{attempt_id}/feedback")
+def submit_attempt_feedback(attempt_id: str, payload: FeedbackIn):
+    with connect() as c:
+        attempt=c.execute("SELECT id FROM task_attempts WHERE id=?",(attempt_id,)).fetchone()
+        if not attempt:
+            raise HTTPException(404,"Task attempt not found.")
+        feedback_id=str(uuid.uuid4())
+        reward=round((payload.rating-3)/2,4)
+        c.execute("""INSERT INTO human_feedback
+          (id,attempt_id,rating,reward,note,correction,evidence,created_at)
+          VALUES(?,?,?,?,?,?,?,?)""",
+          (feedback_id,attempt_id,payload.rating,reward,payload.note,
+           payload.correction,payload.evidence,now()))
+    append_mistake_log("human_feedback_submitted",{
+        "feedback_id":feedback_id,"attempt_id":attempt_id,"rating":payload.rating,
+        "reward":reward,"note":payload.note,"correction":payload.correction,
+        "evidence":payload.evidence})
+    return {"id":feedback_id,"attempt_id":attempt_id,"rating":payload.rating,
+            "reward":reward,"queued_for_training":True}
+
+
+@app.get("/api/feedback")
+def list_feedback(pending_only: bool = False, limit: int = 200):
+    limit=max(1,min(limit,500))
+    query="""SELECT f.*,a.task_id,a.prompt,a.output
+             FROM human_feedback f JOIN task_attempts a ON a.id=f.attempt_id"""
+    if pending_only: query+=" WHERE f.consumed_at IS NULL"
+    query+=" ORDER BY f.created_at DESC LIMIT ?"
+    with connect() as c: return [dict(row) for row in c.execute(query,(limit,))]
+
+
 @app.get("/api/tasks/performance")
 def task_performance():
     with connect() as c:
@@ -815,12 +899,12 @@ def generate_tasks_from_dataset(limit: int = 30):
 
 @app.delete("/api/tasks/{task_id}")
 def delete_task(task_id: str):
+    # Attempt and human-feedback history is retained as an audit record.
     with connect() as c:
-        c.execute("DELETE FROM task_attempts WHERE task_id=?", (task_id,))
         cur = c.execute("DELETE FROM tasks WHERE id=?", (task_id,))
         if not cur.rowcount:
             raise HTTPException(404, "Task not found.")
-    return {"deleted": True, "id": task_id}
+    return {"deleted": True, "id": task_id, "history_preserved": True}
 
 
 @app.post("/api/tasks/{task_id}/try")
