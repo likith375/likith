@@ -21,6 +21,10 @@ DB = ROOT / "neuralforge.sqlite3"
 DATA_DIR.mkdir(exist_ok=True)
 DATA_INBOX = DATA_DIR / "inbox"
 DATA_INBOX.mkdir(exist_ok=True)
+MISTAKES_DIR = DATA_DIR / "mistakes"
+MISTAKES_DIR.mkdir(exist_ok=True)
+MISTAKE_LOG = MISTAKES_DIR / "mistakes.jsonl"
+MISTAKE_LOG_LOCK = threading.Lock()
 CHECKPOINT_DIR.mkdir(exist_ok=True)
 app = FastAPI(title="NeuralForge RL Lab", version="1.0.0")
 app.mount("/static", StaticFiles(directory=ROOT / "frontend"), name="static")
@@ -31,6 +35,13 @@ _adapter_error = None
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+def append_mistake_log(event: str, payload: dict[str, Any]):
+    """Append an audit event; SQLite remains the queryable source of truth."""
+    record={"event":event,"timestamp":now(),**payload}
+    with MISTAKE_LOG_LOCK:
+        with MISTAKE_LOG.open("a",encoding="utf-8") as handle:
+            handle.write(json.dumps(record,ensure_ascii=False)+"\\n")
 
 def connect():
     c = sqlite3.connect(DB, timeout=30)
@@ -216,6 +227,7 @@ def save_mistake(task_id,prompt,output,evaluation,category="failed_tasks"):
     with connect() as c:
         c.execute("INSERT INTO mistakes(id,task_id,prompt,output,category,evidence,correction,verification,evaluator,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                   (mid,task_id,prompt,output,category,json.dumps(evaluation), "", "unverified","static_heuristic",now()))
+    append_mistake_log("mistake_created",{"id":mid,"task_id":task_id,"prompt":prompt,"output":output,"category":category,"evidence":evaluation})
     return mid
 
 def execute_training(run_id, request):
@@ -447,6 +459,7 @@ def add_mistake(m:MistakeIn):
     with connect() as c:
         c.execute("INSERT INTO mistakes(id,task_id,prompt,output,category,evidence,correction,verification,evaluator,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
                   (mid,m.task_id,m.prompt,m.output,m.category,m.evidence,m.correction,"unverified","manual",now()))
+    append_mistake_log("mistake_created",{"id":mid,"task_id":m.task_id,"prompt":m.prompt,"output":m.output,"category":m.category,"evidence":m.evidence,"correction":m.correction})
     return {"id":mid,"verification":"unverified","append_only":True}
 
 @app.patch("/api/mistakes/{mid}")
@@ -457,8 +470,10 @@ def review_mistake(mid:str, review:ReviewIn):
         row=c.execute("SELECT id FROM mistakes WHERE id=?",(mid,)).fetchone()
         if not row: raise HTTPException(404,"Mistake not found.")
         # Strict append-only: original attempt is immutable; status is derived from the latest review event.
+        event_id=str(uuid.uuid4())
         c.execute("INSERT INTO mistake_events(id,mistake_id,action,note,created_at) VALUES(?,?,?,?,?)",
-                  (str(uuid.uuid4()),mid,review.verification,review.note,now()))
+                  (event_id,mid,review.verification,review.note,now()))
+    append_mistake_log("review_event",{"event_id":event_id,"mistake_id":mid,"action":review.verification,"note":review.note})
     return {"id":mid,"verification":review.verification,"review_event_appended":True,"original_unchanged":True}
 
 @app.get("/api/mistakes/export")
