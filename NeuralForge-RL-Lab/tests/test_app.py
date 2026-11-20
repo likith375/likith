@@ -286,3 +286,12 @@ def test_docx_upload_extracts_paragraphs_and_tables(tmp_path, monkeypatch):
                 if x["name"] == "Reference material: lesson.docx")
     assert "Neural networks learn patterns" in item["content"]
     assert "Input | Output" in item["content"]
+
+
+def test_python_domain_checks_syntax_without_execution():
+    valid = main.evaluate_python_static("def add(a, b):\\n    return a + b")
+    invalid = main.evaluate_python_static("def add(a, b)\\n    return a + b")
+    assert valid["checks"]["python_syntax_valid"] is True
+    assert invalid["checks"]["python_syntax_valid"] is False
+    assert invalid["score"] <= 25
+    assert "not executed" in invalid["warning"]
