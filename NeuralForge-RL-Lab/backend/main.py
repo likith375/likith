@@ -459,6 +459,12 @@ def _execute_training_locked(run_id, request):
     started=now()
     with connect() as c:
         c.execute("UPDATE runs SET status='running',started_at=? WHERE id=?",(started,run_id))
+        # Defend against legacy/manual DB edits that re-enable tasks linked to
+        # deleted or validation/test examples.
+        c.execute("""UPDATE tasks SET enabled=0
+                     WHERE enabled=1 AND COALESCE(source_dataset_id,'')<>''
+                       AND NOT EXISTS (SELECT 1 FROM datasets d
+                                       WHERE d.id=tasks.source_dataset_id AND d.split='train')""")
         task_rows=c.execute("SELECT * FROM tasks WHERE enabled=1 ORDER BY created_at").fetchall()
         train_rows=c.execute("SELECT name,category,content FROM datasets WHERE split='train' ORDER BY created_at LIMIT 10000").fetchall()
         task_recent_scores={}
