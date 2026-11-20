@@ -812,6 +812,10 @@ def parse_uploaded_material(filename: str, raw: bytes) -> list[dict[str, Any]]:
                 if not any(value is not None and str(value).strip() for value in values): continue
                 item={header_names[i]:value for i,value in enumerate(values) if i<len(header_names)}
                 item.setdefault("prompt",f"{Path(filename).name} · {sheet.title} row {row_number}")
+                content_keys=("content","code","completion","output","response","answer","target","assistant","text")
+                if not any(item.get(key) is not None and str(item.get(key)).strip() for key in content_keys):
+                    item["content"]=" | ".join(f"{key}: {value}" for key,value in item.items()
+                                                if value is not None and str(value).strip())
                 item.setdefault("category","spreadsheet")
                 rows.append(item)
         workbook.close()
@@ -911,7 +915,7 @@ def import_inbox_folder():
         for row in rows:
             if isinstance(row,dict) and str(row.get("prompt","")).startswith("Reference material: "):
                 row["prompt"]="Reference file: "+path.name
-        is_document=path.suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".html",".htm",".xml"}
+        is_document=path.suffix.lower() in {".txt",".md",".rst",".pdf",".docx",".pptx",".html",".htm",".xml"}
         prepared=prepared_dataset_rows(rows,path.suffix.lower().lstrip("."),source_name,digest,document_chunks=is_document)
         with connect() as c:
             for item in prepared:
