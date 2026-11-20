@@ -5,7 +5,7 @@ uses static heuristics (plus Python AST syntax checks); trusted adapters may
 supply domain-specific evaluation without executing untrusted output.
 """
 from __future__ import annotations
-import ast, csv, hashlib, importlib, io, json, os, random, re, sqlite3, threading, time, uuid
+import ast, csv, hashlib, importlib, io, json, os, random, re, shutil, sqlite3, threading, time, uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1572,6 +1572,30 @@ def save_checkpoint(payload:dict):
 @app.get("/api/checkpoints")
 def list_checkpoints():
     with connect() as c:return [dict(x) for x in c.execute("SELECT * FROM checkpoints ORDER BY created_at DESC")]
+
+@app.delete("/api/checkpoints/{checkpoint_id}")
+def delete_checkpoint(checkpoint_id: str):
+    with connect() as c:
+        row=c.execute("SELECT path FROM checkpoints WHERE id=?",(checkpoint_id,)).fetchone()
+    if not row:
+        raise HTTPException(404,"Checkpoint not found.")
+    checkpoint_path=Path(row["path"]).resolve() if row["path"] else None
+    if checkpoint_path:
+        root=CHECKPOINT_DIR.resolve()
+        try:
+            relative=checkpoint_path.relative_to(root)
+        except ValueError:
+            raise HTTPException(400,"Refusing to delete a checkpoint outside the checkpoint directory.")
+        if not relative.parts:
+            raise HTTPException(400,"Refusing to delete the checkpoint directory itself.")
+        if checkpoint_path.is_dir():
+            shutil.rmtree(checkpoint_path)
+        elif checkpoint_path.exists():
+            checkpoint_path.unlink()
+    with connect() as c:
+        c.execute("DELETE FROM checkpoints WHERE id=?",(checkpoint_id,))
+    return {"deleted":True,"id":checkpoint_id,"files_removed":bool(checkpoint_path and not checkpoint_path.exists())}
+
 
 @app.post("/api/checkpoints/{checkpoint_id}/restore")
 def restore_checkpoint(checkpoint_id:str):
