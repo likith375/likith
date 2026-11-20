@@ -152,4 +152,3 @@ No license has been added yet. Choose a license before redistributing or publish
 
 For setup and common problems, see the [Troubleshooting guide](docs/troubleshooting.md). For end-to-end API examples, see [API workflows](docs/api-workflows.md).
 
-For connecting a scratch-built Python model, see the [Custom adapter guide](docs/custom-adapter.md).
