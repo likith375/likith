@@ -4,7 +4,7 @@ Generated Luau is never executed by this server. Evaluation is static unless a
 future, explicitly sandboxed evaluator is configured by the owner.
 """
 from __future__ import annotations
-import csv, importlib, io, json, os, sqlite3, threading, uuid
+import csv, hashlib, importlib, io, json, os, sqlite3, threading, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,6 +19,8 @@ DATA_DIR = ROOT / "data"
 CHECKPOINT_DIR = ROOT / "checkpoints"
 DB = ROOT / "neuralforge.sqlite3"
 DATA_DIR.mkdir(exist_ok=True)
+DATA_INBOX = DATA_DIR / "inbox"
+DATA_INBOX.mkdir(exist_ok=True)
 CHECKPOINT_DIR.mkdir(exist_ok=True)
 app = FastAPI(title="NeuralForge RL Lab", version="1.0.0")
 app.mount("/static", StaticFiles(directory=ROOT / "frontend"), name="static")
@@ -326,6 +328,53 @@ async def import_data(file: UploadFile=File(...), category: str="general"):
                       (str(uuid.uuid4()),prompt[:300],str(row.get("category") or category)[:80],split,code,json.dumps(meta,ensure_ascii=False),now()))
             count+=1
     return {"added":count,"total_rows":len(rows),"splits":"train/validation/test"}
+
+@app.post("/api/datasets/import-folder")
+def import_inbox_folder():
+    """Import supported text/data files dropped into data/inbox; never execute them."""
+    allowed={".jsonl",".json",".csv",".lua",".luau",".txt",".md"}
+    added=0; skipped=[]; scanned=0
+    for path in sorted(DATA_INBOX.iterdir()):
+        if not path.is_file() or path.suffix.lower() not in allowed:
+            continue
+        scanned+=1
+        raw=path.read_bytes()
+        if len(raw)>15*1024*1024:
+            skipped.append({"file":path.name,"reason":"over 15 MB"})
+            continue
+        digest=hashlib.sha256(raw).hexdigest()
+        metadata=json.dumps({"source_file":path.name,"sha256":digest},ensure_ascii=False)
+        with connect() as c:
+            if c.execute("SELECT 1 FROM datasets WHERE metadata_json=? LIMIT 1",(metadata,)).fetchone():
+                skipped.append({"file":path.name,"reason":"already imported"})
+                continue
+        try:
+            decoded=raw.decode("utf-8-sig")
+            if path.suffix.lower()==".jsonl":
+                rows=[json.loads(line) for line in decoded.splitlines() if line.strip()]
+            elif path.suffix.lower()==".json":
+                obj=json.loads(decoded); rows=obj if isinstance(obj,list) else obj.get("examples",[])
+            elif path.suffix.lower()==".csv":
+                rows=list(csv.DictReader(io.StringIO(decoded)))
+            else:
+                rows=[{"prompt":f"Reference file: {path.name}","content":decoded,"category":path.suffix.lower().lstrip(".")}]
+            if not isinstance(rows,list): raise ValueError("Expected a list of examples.")
+        except Exception as exc:
+            skipped.append({"file":path.name,"reason":f"parse error: {exc}"})
+            continue
+        with connect() as c:
+            for i,row in enumerate(rows):
+                if not isinstance(row,dict): continue
+                code=str(row.get("content") or row.get("code") or row.get("completion") or row.get("output") or row.get("text") or "")
+                prompt=str(row.get("prompt") or row.get("instruction") or row.get("title") or f"{path.name} example {i+1}")
+                if not code.strip(): continue
+                split=str(row.get("split") or ("validation" if i%10==8 else "test" if i%10==9 else "train")).lower()
+                if split not in ("train","validation","test"): split="train"
+                row_meta={"source_file":path.name,"sha256":digest,"row_metadata":{k:v for k,v in row.items() if k not in ("content","code","completion","output","text","prompt","instruction","title")}}
+                c.execute("INSERT INTO datasets(id,name,category,split,content,metadata_json,created_at) VALUES(?,?,?,?,?,?,?)",
+                          (str(uuid.uuid4()),prompt[:300],str(row.get("category") or path.suffix.lower().lstrip("."))[:80],split,code,json.dumps(row_meta,ensure_ascii=False),now()))
+                added+=1
+    return {"scanned_files":scanned,"added":added,"skipped":skipped,"inbox":str(DATA_INBOX)}
 
 @app.get("/api/datasets/export")
 def export_datasets():
