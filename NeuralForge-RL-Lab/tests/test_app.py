@@ -289,8 +289,8 @@ def test_docx_upload_extracts_paragraphs_and_tables(tmp_path, monkeypatch):
 
 
 def test_python_domain_checks_syntax_without_execution():
-    valid = main.evaluate_python_static("def add(a, b):\\n    return a + b")
-    invalid = main.evaluate_python_static("def add(a, b)\\n    return a + b")
+    valid = main.evaluate_python_static("def add(a, b):" + chr(10) + "    return a + b")
+    invalid = main.evaluate_python_static("def add(a, b)" + chr(10) + "    return a + b")
     assert valid["checks"]["python_syntax_valid"] is True
     assert invalid["checks"]["python_syntax_valid"] is False
     assert invalid["score"] <= 25
