@@ -210,9 +210,6 @@ class HuggingFaceREINFORCEAdapter:
             if tensors is None:
                 continue
             input_ids, attention, response_start = tensors
-            prompt_ids = self.tokenizer(
-                str(sample.get("prompt", "")), add_special_tokens=True
-            )["input_ids"]
             # Mask prompt positions but keep every completion token as a target.
             labels = input_ids.clone()
             labels[:, :response_start + 1] = -100
