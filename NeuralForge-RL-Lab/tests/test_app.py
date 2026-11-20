@@ -1573,3 +1573,19 @@ def test_start_training_runs_after_preflight_passes(tmp_path, monkeypatch):
     run = client.get("/api/runs/" + response.json()["id"]).json()
     assert run["status"] == "completed"
     assert run["real_updates"] >= 1
+
+
+
+def test_training_preflight_does_not_count_orphaned_generated_tasks(tmp_path, monkeypatch):
+    client = setup_client(tmp_path, monkeypatch)
+    with main.connect() as db:
+        db.execute("UPDATE tasks SET enabled=0")
+        db.execute("""INSERT INTO tasks
+          (id,title,prompt,expected,difficulty,category,enabled,source_dataset_id,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?)""",
+          ("orphaned-task", "Orphaned", "Prompt", "Answer", "easy", "science",
+           1, "missing-dataset-id", main.now()))
+    preview = client.get("/api/training/preview").json()
+    assert preview["enabled_tasks"] == 0
+    assert preview["orphaned_generated_tasks"] == 1
+    assert preview["ready"] is False
